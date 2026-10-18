@@ -1,10 +1,11 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: implementation in progress, 18 October 2026. Both Debian packages build;
-an installed-package preflight passed all 87 RSA/ML-DSA/Vault lifecycle assertions
-on Ubuntu 26.04. All five cross-repository push dispatchers pass. The archive
-signer passes Ubuntu 26.04 APT verification. Vault source-test tooling and the
-public GitHub-hosted APT release path are still being validated.
+Status: implementation validation in progress, 18 October 2026. The first release,
+`resolute-10001`, passed the complete build/source-test job, anonymous signed APT
+installation and all 87 installed-package RSA/ML-DSA/Vault lifecycle assertions,
+and was promoted after repairing draft lookup. All five push dispatchers and
+the disposable GitHub latest-channel transition test pass. The next automatic
+build must verify retained-pair upgrade/rollback and automatic promotion.
 
 ## Publishing decision
 
@@ -366,6 +367,13 @@ APT must reject the hash mismatch; rerun `apt update` after promotion finishes.
 Uploading a complete draft prevents incomplete published releases, but does
 not make separate latest-URL requests an atomic snapshot.
 
+GitHub's latest download redirects can also briefly lag its release API after
+promotion. The disposable transition test observed an older signed index until
+ordinary update retries reached the new release. Candidate acceptance uses the
+versioned URL; do not require an immediate latest-URL switch or bypass APT
+verification to force one.
+[Hosted transition evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/tag/test-1.1).
+
 Do not advertise APT by-hash support unless the required paths actually work
 through GitHub's flat asset URLs. Never weaken signature or hash verification
 to hide publication races. Test the transition explicitly. If occasional safe
@@ -387,7 +395,7 @@ repository metadata valid for the intended update cadence; if we set
 - [x] Adapt Vanagon/EZbake and the CA gem input to build only Ubuntu 26.04
       artifacts from the current fork branches, with generated package versions,
       an increasing build counter and the server's exact tested-agent dependency.
-- [ ] Record source/runtime provenance and build the complete flat asset set.
+- [x] Record source/runtime provenance and build the complete flat asset set.
 - [ ] Sign metadata, stage and verify a complete draft, publish with
       `make_latest: false`, pass anonymous APT checks at the versioned URL, then
       promote through a serialized job. Keep previous releases/packages.
@@ -397,7 +405,7 @@ repository metadata valid for the intended update cadence; if we set
       fork agent, upgrading advances both packages, and downgrading only the
       agent cannot silently leave an incompatible server installed. Test rollback
       of the complete retained pair.
-- [ ] Verify failures for an untrusted key, modified package, modified index,
+- [x] Verify failures for an untrusted key, modified package, modified index,
       missing signature and metadata mixing during a latest-release switch.
 - [x] Exercise package-installed OpenVox enrollment, catalogs, Vault, renewal,
       revocation and the RSA regression controls; do not substitute source overlays.
@@ -409,6 +417,5 @@ or Debian/Proxmox nodes. The earlier all-existing-nodes-first migration sequence
 needs an explicit deployment path for those systems; do not install Ubuntu
 26.04 binaries on them as a substitute.
 
-Repository and signing credentials have been created during implementation.
-No package release has passed acceptance yet, and no fleet client configuration
-has been changed.
+The repository, signer and initial tested release now exist. Fleet client
+configuration has not been changed; actual fleet canary/cutover remains separate.

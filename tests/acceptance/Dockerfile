@@ -8,7 +8,7 @@ ARG PREVIOUS_SERVER
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg openjdk-25-jdk-headless openssl && rm -rf /var/lib/apt/lists/*
 # Exercise installation over an upstream agent; fork packages must replace it.
 RUN curl -fsSLo /tmp/openvox-release.deb https://apt.voxpupuli.org/openvox9-release-ubuntu26.04.deb && dpkg -i /tmp/openvox-release.deb && apt-get update && apt-get install -y --no-install-recommends openvox-agent=9.1.0-1+ubuntu26.04 && test "$(dpkg-query -W -f='${Version}' openvox-agent)" = 9.1.0-1+ubuntu26.04 && for source in /etc/apt/sources.list.d/*; do if grep -q apt.voxpupuli.org "$source"; then mv "$source" "$source.disabled"; fi; done && rm -rf /var/lib/apt/lists/*
-COPY archive-key.asc /usr/share/keyrings/openvox-homelab.asc
+COPY --chmod=0644 archive-key.asc /usr/share/keyrings/openvox-homelab.asc
 RUN printf 'deb [signed-by=/usr/share/keyrings/openvox-homelab.asc] %s ./\n' "$APT_URL" > /etc/apt/sources.list.d/openvox.sources.list
 # The URL is public: no GitHub token or HTTP credentials enter this image.
 RUN apt-get update -o APT::Update::Error-Mode=any && apt-get install -y --no-install-recommends openvox-server
