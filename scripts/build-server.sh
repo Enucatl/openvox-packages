@@ -87,8 +87,8 @@ sudo dpkg-deb --build "$build/package" "$package"
 [[ $(dpkg-deb -f "$package" Version) == "$SERVER_VERSION" ]]
 dpkg-deb -f "$package" Depends | grep -F "openvox-agent (= $AGENT_VERSION)"
 [[ -f "$build/package/opt/puppetlabs/server/data/puppetserver/java.security.mldsa" ]]
-find "$build/package" -path '*/gems/openvoxserver-ca-*' -type d | grep .
-mapfile -t jars < <(find "$build/package" -name puppet-server-release.jar -type f)
+sudo find "$build/package" -path '*/gems/openvoxserver-ca-*' -type d | grep .
+mapfile -t jars < <(sudo find "$build/package" -name puppet-server-release.jar -type f)
 [[ ${#jars[@]} == 1 ]]
 jar tf "${jars[0]}" > "$build/jar-entries.txt"
 grep -Fx 'org/bouncycastle/jsse/provider/BouncyCastleJsseProvider.class' "$build/jar-entries.txt"
