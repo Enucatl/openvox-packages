@@ -51,7 +51,11 @@ installer.write(installer.read + <<~'INSTALL')
 INSTALL
 RUBY
 docker build -t openvox-packages-server-builder "$build/openvox-server"
-docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pipefail -c '
+docker run --rm -i -v "$build:/build" openvox-packages-server-builder bash -euo pipefail <<'BUILD'
+  mkdir -p /root/.lein
+  cat > /root/.lein/profiles.clj <<'CLOJURE'
+{:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}}
+CLOJURE
   git config --global --add safe.directory "*"
   gem install bundler --no-document
   cd /build/openvoxserver-ca
@@ -66,7 +70,7 @@ docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pip
   bundle install
   lein install
   COW=base-ubuntu26.04-i386.cow MOCK= GEM_SOURCE=https://rubygems.org EZBAKE_ALLOW_UNREPRODUCIBLE_BUILDS=true EZBAKE_NODEPLOY=true LEIN_PROFILES=ezbake lein with-profile user,ezbake,provided ezbake local-build
-'
+BUILD
 mapfile -t packages < <(find "$build/openvox-server/output" -name '*.deb' -type f)
 [[ ${#packages[@]} == 1 ]]
 # Preserve EZbake's maintainer scripts and payload while assigning the archive version.
