@@ -1,9 +1,12 @@
 # ML-DSA OpenVox packages
 
-Coordinated fork packages for Ubuntu 26.04 amd64. Release `resolute-11001` passed
-the complete automated build, source-test, public signed APT, upgrade/rollback
-and 87-assertion lifecycle pipeline and was automatically promoted to latest.
-[Validation run](https://github.com/Enucatl/openvox-packages/actions/runs/39129563850).
+Coordinated fork packages for Ubuntu 26.04 amd64. Release `resolute-13001` passed
+the complete build, source suites, public signed APT, paired upgrade/rollback and
+installed RSA/ML-DSA/Vault lifecycles and was automatically promoted to latest.
+[Validation run](https://github.com/Enucatl/openvox-packages/actions/runs/39141160033)
+tested coordinator `caea3dde7605511102221d01612bc9b07b6b5742`; its
+[manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-13001/build-manifest.json)
+records all five exact source revisions and runtime inputs.
 Fleet rollout and PKI migration remain separate operator work.
 
 A push to `feature/mldsa44` in Enucatl/openvox, Enucatl/jvm-ssl-utils,
@@ -86,9 +89,18 @@ then install `openvox-agent` on nodes and `openvox-server` on the server.
 Subsequent `sudo apt update && sudo apt upgrade` advances tested package pairs.
 This does not schedule fleet installation or migrate existing PKI identities.
 
-For ML-DSA explicitly configure Java 25 and the installed opt-in
-`/opt/puppetlabs/server/data/puppetserver/java.security.mldsa` provider file.
-Keep the RSA/default provider behavior unless doing the separate PKI migration.
+For ML-DSA install `openjdk-25-jre-headless`, then set the supported service
+settings in `/etc/default/puppetserver`, preserving the existing heap options:
+
+```sh
+JAVA_BIN="/usr/lib/jvm/java-25-openjdk-amd64/bin/java"
+JAVA_ARGS="-Xms2g -Xmx2g -Djava.security.properties=/opt/puppetlabs/server/data/puppetserver/java.security.mldsa -Djdk.tls.client.SignatureSchemes=mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256 -Djdk.tls.server.SignatureSchemes=mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256 -Dorg.bouncycastle.jsse.client.SignatureSchemesCert=mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256 -Dorg.bouncycastle.jsse.server.SignatureSchemesCert=mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256"
+```
+
+Restart with `sudo systemctl restart puppetserver`. The security-file property
+uses one equals sign to append to the runtime security configuration. The
+installed provider file is opt-in; PKI migration remains separate operator work.
+Use literal values: systemd reads this file without shell-variable expansion.
 
 `latest` requests are independent: a promotion can cause an index hash mismatch.
 APT must reject it; repeat `apt update`. Previous package assets remain available
@@ -105,13 +117,34 @@ runs the same `scripts/server-specs.rb` entry point as the source tests and reje
 the original MRI Bundler environment leak into Rake's child processes.
 `tests/build-manifest.rb` runs the workflow's recording step against fixtures to
 verify identity, check records, runtime inputs, checksums and missing evidence.
+`tests/acceptance-diagnostics.rb` verifies the failure-stage output and diagnostic
+allowlist, including failures before lifecycle startup. Run the shell/Ruby checks
+and these focused tests before the full workflow; `scripts/source-tests.sh`
+mutates its disposable source checkouts and must not run against working trees.
 Source tests and installed-agent ML-DSA checks precede candidate
 publication. Package acceptance exercises anonymous APT, missing-key rejection,
 paired upgrade/rollback when a previous release exists, and installed-package
 RSA/ML-DSA enrollment, catalogs, renewal, revocation and Vault integration.
 The lifecycle uses the installed authorization file and foreground launcher with
-explicit Java/provider settings. Packaged systemd startup remains unverified
-until the disposable Ubuntu 26.04 VM check.
+explicit Java/provider settings. A checksum-verified official Ubuntu 26.04 KVM
+guest also passed packaged systemd startup with default RSA/SunJSSE and explicit
+Java 25/BCJSSE/PKIX configuration, including verified HTTPS and actual process
+settings. The VM provider restart reused its RSA identity; the complete ML-DSA
+identity lifecycle ran in installed-package acceptance.
+The fixture cleanup removes the overwritten synthetic ML-DSA hierarchy and
+synthetic fixture-only issuance/revocation. The package lifecycle still checks
+actual enrollment, issuer signatures, key usage, TLS 1.3 groups and both TLS
+signatures, renewal, CRL refresh/reload, unauthorized access, revocation and
+replacement identities, plus Vault authentication/issuance and negative controls.
+It uses Vault's generated ML-DSA hierarchy directly. Completion is recorded for
+each lifecycle; an arbitrary assertion-count threshold is not a coverage gate.
+The disposable distribution test verified the exact coordinator tag target,
+complete native candidate publication, unchanged latest after an induced
+acceptance failure, signed anonymous APT and paired rollback/upgrade, then explicit
+promotion. It preserved existing releases and restored the original disposable
+latest designation afterward. Persistent evidence:
+[complete-flow checks](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/task12-verification.txt),
+[Ubuntu 26.04 systemd checks](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/ubuntu26-systemd-resolute-13001.txt).
 Acceptance evidence includes disposable private identities; it is never uploaded
 as public release assets. Ubuntu 24.04 and Debian/Proxmox are outside this build.
 

@@ -1,12 +1,32 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: implemented and validated, 18 October 2026. Release `resolute-11001`
+Status: simplified implementation verified, 18 October 2026. Release `resolute-13001`
 passed the complete automated pipeline: builds, source suites, signed public APT
 installation, retained-pair rollback/upgrade, incompatible agent-only downgrade
-rejection and all 87 RSA/ML-DSA/Vault lifecycle assertions. It was automatically
-promoted to latest. The release retains the tested `resolute-10001` package pair.
-All five push dispatchers and the disposable GitHub channel-transition test pass.
-[Successful full run](https://github.com/Enucatl/openvox-packages/actions/runs/39129563850).
+rejection and both installed RSA/ML-DSA/Vault lifecycles. It was automatically
+promoted to latest and retains the tested `resolute-11001` package pair.
+[Successful full run](https://github.com/Enucatl/openvox-packages/actions/runs/39141160033)
+tested coordinator `caea3dde7605511102221d01612bc9b07b6b5742`; the release manifest
+records the exact five fork revisions, package hashes and runtime inputs.
+
+The final suites passed: Vault 253 examples; agent 25,368 examples with 22 existing
+pending; SSL 30 tests/291 assertions plus `IssuerSigningTest`; CA 283 examples;
+server Clojure 224 tests/12,824 assertions and 223 tests/12,813 assertions; server
+Ruby 78 examples. The earlier run failed a nested logging-capture assertion;
+the final server revision retains all assertions with capture established by the
+existing fixture before server startup.
+
+The disposable distribution test used unchanged publication/acceptance entry
+points and a fresh disposable signer. It verified the exact target SHA, complete
+candidate assets, unchanged latest after forced acceptance failure, anonymous
+signed APT, exact pairing, rollback/upgrade, incompatible downgrade rejection and
+explicit promotion. Historical releases were preserved and the original
+disposable latest restored. A real KVM Ubuntu 26.04 guest independently passed
+packaged systemd startup with default RSA/SunJSSE and explicit Java 25/BCJSSE/PKIX;
+its provider restart reused RSA identity, while installed-package acceptance
+verified the full ML-DSA identity lifecycle.
+[Complete-flow evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/task12-verification.txt),
+[VM evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/ubuntu26-systemd-resolute-13001.txt).
 
 ## Publishing decision
 
@@ -68,8 +88,9 @@ Build dependencies and packages in this order:
 1. Build/install the forked SSL library into the job's local Leiningen/Maven
    repository. The server must use this build, not an unrelated remote snapshot.
    A public upstream SSL-library release is not required.
-2. Build the patched CA CLI gem. Change the server's vendored-gem input to use
-   it; the current recipe requests public `openvoxserver-ca 3.3.0`.
+2. Build the patched CA CLI gem with an explicit output filename. The checked-in
+   server installer consumes the coordinated local gem; ordinary upstream builds
+   retain the public `openvoxserver-ca 3.3.0` fallback.
 3. Build the agent using Vanagon under `openvox/packaging`. Reuse upstream
    runtime tarballs where they supply the required Ruby/OpenSSL combination.
 4. Build the server with EZbake and the matching SSL library and CA gem. Include
@@ -79,6 +100,13 @@ Build dependencies and packages in this order:
    the OpenVox/Vault paths before publishing them as the default release.
 
 Keep existing package names and supported filesystem/service layouts.
+Permanent Ubuntu 26.04, Debian revision, Java 25 builder, security-file installation
+and local CA-gem support live in the source-fork recipes. The coordinator's
+`scripts/configure-build.rb` applies only generated build versions, exact agent
+pairing and unique local SSL Maven coordinates, for both package and source tests.
+EZbake uses disposable clean Git clones. Vault tests use the checked-in four-entry
+`tests/Gemfile.vault`; server Ruby tests use `scripts/server-specs.rb` to isolate
+Bundler's child environment.
 
 ### Package versions and compatibility
 
@@ -135,7 +163,7 @@ update. Never overwrite different contents under the same version or filename.
 
 For this first pipeline, generate the server's Debian dependency as
 `openvox-agent (= <full-agent-package-version-tested-with-this-server>)`.
-The server loads its Ruby code from the installed agent; the current
+The server loads its Ruby code from the installed agent; the upstream
 `openvox-agent (>= 9.1.0)` dependency also accepts unpatched upstream code.
 An exact dependency makes the tested pair explicit without claiming that every
 newer agent is compatible. Rebuild and publish both packages together, even when
@@ -176,11 +204,13 @@ the final indexes, then sign it. Keep the repository's Origin, Label and other
 identity fields stable between builds. Store build identity in the manifest.
 [Index-generation reference](https://manpages.ubuntu.com/manpages/resolute/man1/apt-ftparchive.1.html).
 
-Publish all assets into a draft first and validate the completed asset set.
-Then publish with `make_latest: false`. Run anonymous APT download, signature,
+Publish with `gh release create --latest=false --target "$GITHUB_SHA"`, passing
+the explicit archive asset list. GitHub CLI stages asset-bearing releases as a
+draft, uploads all files, then publishes. Run anonymous APT download, signature,
 installation and upgrade checks against that release's versioned URL; draft
 assets cannot exercise the public client download path. Only after those checks
-pass, explicitly promote the release with `make_latest: true`. Keep failed
+pass, append `Acceptance: passed` to the notes and explicitly promote with
+`gh release edit --latest --notes-file RELEASE-NOTES.md`. Keep failed
 candidates out of latest. Test latest-URL redirects and metadata mixing in a
 disposable distribution repository before enabling production promotion.
 [GitHub release publication controls](https://docs.github.com/en/rest/releases/releases).
@@ -268,8 +298,8 @@ OpenPGP signatures for APT does not make package distribution post-quantum.
 
 ## Client configuration
 
-These are future setup instructions. The repository, key and fingerprint must
-exist and pass the acceptance checks below before using them on the fleet.
+These are operator setup instructions. Authenticate the repository key and
+review the acceptance evidence below before using them on the fleet.
 The public repository requires no GitHub token on clients.
 
 ### 1. Install and authenticate the public archive key
