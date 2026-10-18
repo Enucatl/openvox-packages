@@ -1,11 +1,12 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: implementation validation in progress, 18 October 2026. The first release,
-`resolute-10001`, passed the complete build/source-test job, anonymous signed APT
-installation and all 87 installed-package RSA/ML-DSA/Vault lifecycle assertions,
-and was promoted after repairing draft lookup. All five push dispatchers and
-the disposable GitHub latest-channel transition test pass. The next automatic
-build must verify retained-pair upgrade/rollback and automatic promotion.
+Status: implemented and validated, 18 October 2026. Release `resolute-11001`
+passed the complete automated pipeline: builds, source suites, signed public APT
+installation, retained-pair rollback/upgrade, incompatible agent-only downgrade
+rejection and all 87 RSA/ML-DSA/Vault lifecycle assertions. It was automatically
+promoted to latest. The release retains the tested `resolute-10001` package pair.
+All five push dispatchers and the disposable GitHub channel-transition test pass.
+[Successful full run](https://github.com/Enucatl/openvox-packages/actions/runs/39129563850).
 
 ## Publishing decision
 
@@ -396,12 +397,12 @@ repository metadata valid for the intended update cadence; if we set
       artifacts from the current fork branches, with generated package versions,
       an increasing build counter and the server's exact tested-agent dependency.
 - [x] Record source/runtime provenance and build the complete flat asset set.
-- [ ] Sign metadata, stage and verify a complete draft, publish with
+- [x] Sign metadata, stage and verify a complete draft, publish with
       `make_latest: false`, pass anonymous APT checks at the versioned URL, then
       promote through a serialized job. Keep previous releases/packages.
-- [ ] In disposable Ubuntu 26.04 clients, verify real GitHub redirects, signed
+- [x] In disposable Ubuntu 26.04 clients, verify real GitHub redirects, signed
       `apt update`, installation, upgrade, retained-version download and rollback.
-- [ ] Verify installing the server over an upstream agent brings in the matching
+- [x] Verify installing the server over an upstream agent brings in the matching
       fork agent, upgrading advances both packages, and downgrading only the
       agent cannot silently leave an incompatible server installed. Test rollback
       of the complete retained pair.
@@ -409,13 +410,14 @@ repository metadata valid for the intended update cadence; if we set
       missing signature and metadata mixing during a latest-release switch.
 - [x] Exercise package-installed OpenVox enrollment, catalogs, Vault, renewal,
       revocation and the RSA regression controls; do not substitute source overlays.
-- [ ] Capture client setup in the control repo and run the live canary before
-      fleet expansion. Keep actual deployed versions as records, not source pins.
+- [x] Capture client setup in the distribution/control repo documentation.
+- [ ] Run the live canary before fleet expansion. Keep actual deployed versions
+      as records, not source pins.
 
 Ubuntu 26.04-only publication does not supply packages for current Ubuntu 24.04
 or Debian/Proxmox nodes. The earlier all-existing-nodes-first migration sequence
 needs an explicit deployment path for those systems; do not install Ubuntu
 26.04 binaries on them as a substitute.
 
-The repository, signer and initial tested release now exist. Fleet client
+The repository, signer and automatically promoted tested releases now exist. Fleet client
 configuration has not been changed; actual fleet canary/cutover remains separate.

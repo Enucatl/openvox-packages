@@ -1,8 +1,10 @@
 # ML-DSA OpenVox packages
 
-Coordinated fork packages for Ubuntu 26.04 amd64. This pipeline is being validated;
-no package release is trusted as a deployment candidate until its acceptance job
-passes and it is promoted to latest.
+Coordinated fork packages for Ubuntu 26.04 amd64. Release `resolute-11001` passed
+the complete automated build, source-test, public signed APT, upgrade/rollback
+and 87-assertion lifecycle pipeline and was automatically promoted to latest.
+[Validation run](https://github.com/Enucatl/openvox-packages/actions/runs/39129563850).
+Fleet rollout and PKI migration remain separate operator work.
 
 A push to `feature/mldsa44` in Enucatl/openvox, Enucatl/jvm-ssl-utils,
 Enucatl/openvox-server, Enucatl/openvoxserver-ca or Enucatl/vault dispatches
