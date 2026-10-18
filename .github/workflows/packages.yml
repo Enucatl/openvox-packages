@@ -1,0 +1,103 @@
+name: Coordinated packages
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: coordinated-packages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83
+        with:
+          ruby-version: '3.4'
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74
+        with:
+          lein: latest
+      - name: Archive integrity self-check
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils
+          bash tests/archive.sh
+      - name: Resolve branches and prepare versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prepare.sh
+      - name: Verify server recipe
+        run: |
+          ruby tests/server-recipe.rb
+          ruby tests/source-recipe.rb
+      - name: Source tests
+        run: scripts/source-tests.sh
+      - name: Build agent
+        run: scripts/build-agent.sh
+      - name: Test built agent
+        run: scripts/test-agent.sh
+      - name: Build server
+        run: scripts/build-server.sh
+      - name: Record successful build checks
+        run: |
+          # shellcheck disable=SC2016
+          ruby -rjson -e 'p="dist/build-manifest.json"; m=JSON.parse(File.read(p)); m["checks"]={"source_tests"=>"passed","agent_package_tests"=>"passed","server_recipe"=>"passed"}; m["runtime_inputs"]={"agent_runtime"=>JSON.parse(File.read("sources/openvox/packaging/configs/components/puppet-runtime.json")),"java"=>`java -version 2>&1`.strip}; m["sha256"]=Dir["dist/*.deb"].to_h { |f| [File.basename(f), `sha256sum #{f}`.split.first] }; File.write(p,JSON.pretty_generate(m)+"\n")'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: packages
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+  publish:
+    needs: build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: packages
+          path: dist
+      - name: Restore build identity and tested Vault module
+        run: |
+          jq -r '"BUILD_NUMBER="+.build, "AGENT_VERSION="+.sources.openvox.package_version, "SERVER_VERSION="+.sources["openvox-server"].package_version' dist/build-manifest.json >> "$GITHUB_ENV"
+          sha=$(jq -r '.sources.vault.sha' dist/build-manifest.json)
+          git clone --no-checkout https://github.com/Enucatl/vault.git sources/vault
+          git -C sources/vault checkout --detach "$sha"
+      - name: Sign and publish candidate
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
+          APT_PRIMARY_FINGERPRINT: ${{ vars.APT_PRIMARY_FINGERPRINT }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils
+          export GNUPGHOME
+          GNUPGHOME=$(mktemp -d)
+          chmod 700 "$GNUPGHOME"
+          trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$APT_SIGNING_KEY" | gpg --batch --import
+          scripts/publish.sh
+      - name: Anonymous APT and installed-package acceptance
+        run: scripts/acceptance.sh "$CANDIDATE_URL" openvox-archive-keyring.asc "${PREVIOUS_AGENT:-}" "${PREVIOUS_SERVER:-}"
+      - name: Promote tested candidate
+        run: |
+          id=$(gh api "repos/$GH_REPO/releases/tags/$CANDIDATE_TAG" --jq .id)
+          printf '\nAcceptance: passed\n' >> RELEASE-NOTES.md
+          gh api --method PATCH "repos/$GH_REPO/releases/$id" -f make_latest=true -f body="$(cat RELEASE-NOTES.md)" >/dev/null
