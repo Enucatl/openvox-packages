@@ -8,10 +8,14 @@ for path in status.txt scope.txt versions.txt generate.log crls.log vault-setup.
   docker cp "$container:/test/$path" "$destination/$path" 2>/dev/null || true
 done
 for variant in RSA ML-DSA-44; do
-  mkdir -p "$destination/$variant-lifecycle"
-  for name in import.log startup.log service.log agent-first.log agent-second.log agent-good.log agent-denied.log agent-replacement.log tls-negotiation.json revocation-error.txt; do
-    path="$variant-lifecycle/$name"
-    docker cp "$container:/test/$path" "$destination/$path" 2>/dev/null || true
+  for action in import setup; do
+    label="$variant-lifecycle"
+    if [ "$action" = setup ]; then label="$variant-setup-lifecycle"; fi
+    mkdir -p "$destination/$label"
+    for name in "$action.log" startup.log service.log agent-first.log agent-second.log agent-good.log agent-denied.log agent-replacement.log tls-negotiation.json revocation-error.txt; do
+      path="$label/$name"
+      docker cp "$container:/test/$path" "$destination/$path" 2>/dev/null || true
+    done
   done
 done
 for name in puppetserver.log puppetserver-daemon.log; do

@@ -119,8 +119,11 @@ The image's persistent state paths are `/etc/puppetlabs/puppet/ssl`,
 `/opt/puppetlabs/server/data/puppetserver/server_data` (the container's vardir),
 and `/opt/puppetlabs/server/data/puppetserver/jruby-gems` for operator-installed
 gems. Normal startup rejects missing CA/server keys and certificates. Explicit
-`puppetserver ca setup` or the rehearsed external-CA import remains an operator
-action, using the same mounts and `/etc/puppetlabs/puppet/puppet.conf`.
+`puppetserver ca setup` creates an RSA hierarchy by default; pass
+`--key-type mldsa44` to create ML-DSA-44 root, intermediate and server identities.
+Setup or the rehearsed external-CA import remains an operator action, using the
+same mounts and `/etc/puppetlabs/puppet/puppet.conf`. Image acceptance starts and
+recreates servers with both default RSA and explicit ML-DSA setups.
 
 The [first hosted image publication](https://github.com/Enucatl/openvox-packages/actions/runs/39153344363)
 passed image build/lifecycle checks and published `9.1.0-mldsa.13001`, `9.1.0`
@@ -260,6 +263,8 @@ Source tests and installed-agent ML-DSA checks precede candidate
 publication. Package acceptance exercises anonymous APT, missing-key rejection,
 paired upgrade/rollback when a previous release exists, and installed-package
 RSA/ML-DSA enrollment, catalogs, renewal, revocation and Vault integration.
+It retains external-CA import coverage and separately creates fresh hierarchies
+using `ca setup` without a flag (RSA) and with `--key-type mldsa44`.
 The lifecycle uses the installed authorization file and foreground launcher with
 explicit Java/provider settings. A checksum-verified official Ubuntu 26.04 KVM
 guest also passed packaged systemd startup with default RSA/SunJSSE and explicit
@@ -271,7 +276,9 @@ synthetic fixture-only issuance/revocation. The package lifecycle still checks
 actual enrollment, issuer signatures, key usage, TLS 1.3 groups and both TLS
 signatures, renewal, CRL refresh/reload, unauthorized access, revocation and
 replacement identities, plus Vault authentication/issuance and negative controls.
-It uses Vault's generated ML-DSA hierarchy directly. Completion is recorded for
+ML-DSA lifecycles require the real agent to negotiate `X25519MLKEM768` and
+`mldsa44` authentication in both directions. The external ML-DSA lifecycle uses
+Vault's generated hierarchy directly. Completion is recorded for
 each lifecycle; an arbitrary assertion-count threshold is not a coverage gate.
 The disposable distribution test verified the exact coordinator tag target,
 complete native candidate publication, unchanged latest after an induced

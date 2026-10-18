@@ -12,7 +12,7 @@ finish() {
     printf 'Acceptance failed during %s (exit %s); last output from %s:\n' "$stage" "$code" "$log" >&2
     tail -80 "$log" >&2 || true
     if [ "$stage" = lifecycle ]; then
-      for path in RSA-lifecycle/startup.log RSA-lifecycle/service.log ML-DSA-44-lifecycle/startup.log ML-DSA-44-lifecycle/service.log; do
+      for path in RSA-lifecycle/startup.log RSA-lifecycle/service.log ML-DSA-44-lifecycle/startup.log ML-DSA-44-lifecycle/service.log RSA-setup-lifecycle/setup.log RSA-setup-lifecycle/startup.log RSA-setup-lifecycle/service.log ML-DSA-44-setup-lifecycle/setup.log ML-DSA-44-setup-lifecycle/startup.log ML-DSA-44-setup-lifecycle/service.log; do
         if [ -f "$path" ]; then
           printf '\n--- %s ---\n' "$path" >&2
           tail -40 "$path" >&2

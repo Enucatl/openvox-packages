@@ -72,28 +72,47 @@ def cert_check(label, certificate, algorithm)
 end
 
 check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
-[['RSA', 'rsa', 'RSA'], ['ML-DSA-44', 'mldsa44', 'vault-state']].each do |algorithm, key_type, fixtures|
-  label = "#{algorithm}-lifecycle"
+[
+  ['RSA', 'rsa', 'RSA', 'RSA-lifecycle'],
+  ['ML-DSA-44', 'mldsa44', 'vault-state', 'ML-DSA-44-lifecycle'],
+  ['RSA', 'rsa', nil, 'RSA-setup-lifecycle'],
+  ['ML-DSA-44', 'mldsa44', nil, 'ML-DSA-44-setup-lifecycle']
+].each do |algorithm, key_type, fixtures, label|
+  vault = fixtures == 'vault-state'
   FileUtils.mkdir_p(label)
   environment = '/test/code/environments/production'
-  if algorithm == 'ML-DSA-44'
+  if vault
     FileUtils.cp('/test/hiera.yaml', "#{environment}/hiera.yaml")
     File.write("#{environment}/manifests/site.pp", "file { '/test/applied-client': ensure => file, content => lookup('poc::marker') }\n")
   else
     FileUtils.rm_f("#{environment}/hiera.yaml")
+    File.write("#{environment}/manifests/site.pp", "file { '/test/applied-client': ensure => file, content => 'mldsa-catalog-applied' }\n")
   end
   FileUtils.rm_rf('active')
   FileUtils.mkdir_p('active')
-  %w[server.key sub.pem].each { |name| FileUtils.cp("#{fixtures}/#{name}", "active/#{name}") }
-  chain = File.read("#{fixtures}/sub.pem") + File.read("#{fixtures}/root.pem")
-  File.write('active/import-chain.pem', chain)
-  File.write('active/server.pub', OpenSSL::PKey.read(File.read('active/server.key')).public_to_pem)
-  # Subordinate CRL comes first, matching OpenVox's imported-CA format.
-  crls = File.read("#{fixtures}/sub.crl") + File.read("#{fixtures}/root.crl")
-  File.write('active/import-crls.pem', crls)
-  import_command = ['/opt/puppetlabs/bin/puppetserver', 'ca', 'import', '--config', '/etc/puppetlabs/puppet/puppet.conf', '--private-key', "#{fixtures}/sub.key", '--cert-bundle', 'active/import-chain.pem', '--crl-chain', 'active/import-crls.pem', '--subject-alt-names', 'localhost']
-  File.write("#{label}/import-command.json", JSON.pretty_generate(import_command))
-  check("#{label}/native_CA_import", system(*import_command, out: "#{label}/import.log", err: [:child, :out]))
+  if fixtures
+    %w[server.key sub.pem].each { |name| FileUtils.cp("#{fixtures}/#{name}", "active/#{name}") }
+    chain = File.read("#{fixtures}/sub.pem") + File.read("#{fixtures}/root.pem")
+    File.write('active/import-chain.pem', chain)
+    File.write('active/server.pub', OpenSSL::PKey.read(File.read('active/server.key')).public_to_pem)
+    # Subordinate CRL comes first, matching OpenVox's imported-CA format.
+    crls = File.read("#{fixtures}/sub.crl") + File.read("#{fixtures}/root.crl")
+    File.write('active/import-crls.pem', crls)
+    import_command = ['/opt/puppetlabs/bin/puppetserver', 'ca', 'import', '--config', '/etc/puppetlabs/puppet/puppet.conf', '--private-key', "#{fixtures}/sub.key", '--cert-bundle', 'active/import-chain.pem', '--crl-chain', 'active/import-crls.pem', '--subject-alt-names', 'localhost']
+    File.write("#{label}/import-command.json", JSON.pretty_generate(import_command))
+    check("#{label}/native_CA_import", system(*import_command, out: "#{label}/import.log", err: [:child, :out]))
+  else
+    setup_command = ['/opt/puppetlabs/bin/puppetserver', 'ca', 'setup', '--config', '/etc/puppetlabs/puppet/puppet.conf', '--subject-alt-names', 'localhost']
+    setup_command += ['--key-type', key_type] unless key_type == 'rsa'
+    File.write("#{label}/setup-command.json", JSON.pretty_generate(setup_command))
+    check("#{label}/native_CA_setup", system(*setup_command, out: "#{label}/setup.log", err: [:child, :out]))
+    chain = File.read('active/ca-chain.pem')
+    issuer, root = chain.scan(/-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----/m).map { |pem| OpenSSL::X509::Certificate.new(pem) }
+    File.write('active/sub.pem', issuer.to_pem)
+    expected_signature = algorithm == 'ML-DSA-44' ? 'ML-DSA-44' : 'sha256WithRSAEncryption'
+    check("#{label}/generated_root_and_intermediate", root.verify(root.public_key) && issuer.verify(root.public_key) && [root, issuer].all? { |cert| cert.signature_algorithm == expected_signature })
+    check("#{label}/persisted_root_key_matches", OpenSSL::PKey.read(File.read('active/ca/root_key.pem')).public_to_der == root.public_key.public_to_der)
+  end
   imported_server = OpenSSL::X509::Certificate.new(File.read('active/server-chain.pem'))
   cert_check("#{label}/imported_server", imported_server, algorithm)
   server_key = OpenSSL::PKey.read(File.read('active/server.key'))
@@ -108,6 +127,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     options << '-Djava.security.properties=/test/java.security.mldsa'
     schemes = 'mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256'
     %w[jdk.tls.client.SignatureSchemes jdk.tls.server.SignatureSchemes org.bouncycastle.jsse.client.SignatureSchemesCert org.bouncycastle.jsse.server.SignatureSchemesCert].each { |key| options << "-D#{key}=#{schemes}" }
+    options << '-Djdk.tls.namedGroups=X25519MLKEM768,x25519,secp256r1'
   end
   provider = algorithm == 'ML-DSA-44' ? 'bc' : 'default'
   raise 'Packaged server startup provider probe failed' unless system(java, *options, '-cp', '.:server.jar', 'StartupProbe', provider, out: "#{label}/startup.log", err: [:child, :out])
@@ -128,20 +148,20 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
       raise 'Server exited during startup' if Process.waitpid(pid, Process::WNOHANG)
       begin
         response = http('Get', '/puppet-ca/v1/certificate/ca')
-        check("#{label}/authenticated_bootstrap_CA", response.code == '200' && response.body.include?(File.read("#{fixtures}/sub.pem").strip))
+        check("#{label}/authenticated_bootstrap_CA", response.code == '200' && response.body.include?(File.read('active/sub.pem').strip))
         break
       rescue Errno::ECONNREFUSED, EOFError, OpenSSL::SSL::SSLError
         raise 'Server readiness timed out' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
         sleep 1
       end
     end
-    application = algorithm == 'ML-DSA-44' ? 'fresh_agent_catalog_and_Hiera_apply' : 'fresh_agent_catalog_apply'
+    application = vault ? 'fresh_agent_catalog_and_Hiera_apply' : 'fresh_agent_catalog_apply'
     check("#{label}/#{application}", run_agent('client', key_type, "#{label}/agent-first.log") == 2 && File.read('/test/applied-client') == 'mldsa-catalog-applied')
     original = OpenSSL::X509::Certificate.new(File.read(agent_identity('client').last))
     cert_check("#{label}/issued", original, algorithm)
     initial_crl = OpenSSL::X509::CRL.new(http('Get', '/puppet-ca/v1/certificate_revocation_list/ca').body)
     check("#{label}/automatic_CRL_expiry_refresh", initial_crl.next_update > Time.now + 30 * 86400 && initial_crl.extensions.find { |extension| extension.oid == 'crlNumber' }.value.to_i.positive? && initial_crl.verify(OpenSSL::X509::Certificate.new(File.read('active/sub.pem')).public_key))
-    if algorithm == 'ML-DSA-44'
+    if vault
       status, login = vault_agent_login(agent_identity('client'), "#{label}/vault-enrolled")
       check("#{label}/Vault_auth_with_enrolled_identity", status == 200 && login.dig('auth', 'client_token') && login.dig('auth', 'policies').include?('poc'))
       token = login.fetch('auth').fetch('client_token')
@@ -161,6 +181,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     handshakes = File.readlines("#{label}/agent-second.log.tls.jsonl").map { |line| JSON.parse(line) }
     File.write("#{label}/tls-negotiation.json", JSON.pretty_generate(handshakes) + "\n")
     check("#{label}/actual_agent_TLS13_group_recorded", !handshakes.empty? && handshakes.all? { |tls| tls['hostname'] == 'localhost' && tls['port'] == 8140 && tls['protocol'] == 'TLSv1.3' && tls['group'].is_a?(String) && !tls['group'].empty? && tls['resumed'] == false })
+    check("#{label}/actual_agent_hybrid_key_exchange", handshakes.all? { |tls| tls['group'] == 'X25519MLKEM768' }) if algorithm == 'ML-DSA-44'
     signature = algorithm == 'ML-DSA-44' ? /mldsa44/i : /rsa/i
     check("#{label}/actual_agent_both_TLS_signatures", handshakes.all? { |tls| %w[client_signature server_signature].all? { |side| tls[side].is_a?(String) && tls[side].delete('-_').match?(signature) } })
     check("#{label}/second_agent_enrolls", [0, 2].include?(run_agent('good', key_type, "#{label}/agent-good.log")))
@@ -175,7 +196,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     check("#{label}/renewal_same_key_new_serial", renewed.public_key.public_to_der == original.public_key.public_to_der && renewed.serial != original.serial)
     File.write(agent_identity('client').last, renewed.to_pem)
     check("#{label}/renewed_identity_connects", http('Get', '/puppet/v3/environments', identity: agent_identity('client')).code == '200')
-    if algorithm == 'ML-DSA-44'
+    if vault
       status, login = vault_agent_login(agent_identity('client'), "#{label}/vault-renewed")
       check("#{label}/Vault_auth_with_renewed_identity", status == 200 && login.dig('auth', 'client_token'))
     end
@@ -204,7 +225,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     issuer = OpenSSL::X509::Certificate.new(File.read('active/sub.pem'))
     check("#{label}/CRL_signature_and_both_serials_revoked", crl.verify(issuer.public_key) && [original.serial, renewed.serial].all? { |serial| crl.revoked.any? { |revoked| revoked.serial == serial } })
     check("#{label}/CRL_algorithm", crl.signature_algorithm == (algorithm == 'ML-DSA-44' ? 'ML-DSA-44' : 'sha256WithRSAEncryption'))
-    if algorithm == 'ML-DSA-44'
+    if vault
       check("#{label}/Vault_CRL_publication", vault_publish_crl(crl).first == 204)
       status, login = vault_agent_login(agent_identity('client'), "#{label}/vault-revoked")
       check("#{label}/Vault_rejects_revoked_identity", status == 400 && login.fetch('errors').any? { |error| error.match?(/constraints|revoked/i) })
@@ -227,7 +248,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     rescue OpenSSL::SSL::SSLError => error
       check("#{label}/old_identity_stays_revoked", error.message.match?(/certificate|revoked/i))
     end
-    if algorithm == 'ML-DSA-44'
+    if vault
       status, login = vault_agent_login(agent_identity('client'), "#{label}/vault-replacement")
       check("#{label}/Vault_accepts_replacement_identity", status == 200 && login.dig('auth', 'client_token'))
       status, login = vault_agent_login(revoked_identity, "#{label}/vault-old-identity")

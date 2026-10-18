@@ -274,6 +274,26 @@ jobs:
             evidence/acceptance/ML-DSA-44-lifecycle/agent-replacement.log
             evidence/acceptance/ML-DSA-44-lifecycle/tls-negotiation.json
             evidence/acceptance/ML-DSA-44-lifecycle/revocation-error.txt
+            evidence/acceptance/RSA-setup-lifecycle/setup.log
+            evidence/acceptance/RSA-setup-lifecycle/startup.log
+            evidence/acceptance/RSA-setup-lifecycle/service.log
+            evidence/acceptance/RSA-setup-lifecycle/agent-first.log
+            evidence/acceptance/RSA-setup-lifecycle/agent-second.log
+            evidence/acceptance/RSA-setup-lifecycle/agent-good.log
+            evidence/acceptance/RSA-setup-lifecycle/agent-denied.log
+            evidence/acceptance/RSA-setup-lifecycle/agent-replacement.log
+            evidence/acceptance/RSA-setup-lifecycle/tls-negotiation.json
+            evidence/acceptance/RSA-setup-lifecycle/revocation-error.txt
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/setup.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/startup.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/service.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/agent-first.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/agent-second.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/agent-good.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/agent-denied.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/agent-replacement.log
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/tls-negotiation.json
+            evidence/acceptance/ML-DSA-44-setup-lifecycle/revocation-error.txt
             evidence/acceptance/package-puppetserver.log
             evidence/acceptance/package-puppetserver-daemon.log
           if-no-files-found: warn
