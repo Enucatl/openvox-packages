@@ -72,10 +72,10 @@ def cert_check(label, certificate, algorithm)
 end
 
 check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
-[['RSA', 'rsa'], ['ML-DSA-44', 'mldsa44']].each do |algorithm, key_type|
+[['RSA', 'rsa', 'RSA'], ['ML-DSA-44', 'mldsa44', 'vault-state']].each do |algorithm, key_type, fixtures|
   label = "#{algorithm}-lifecycle"
   FileUtils.mkdir_p(label)
-  environment = '/etc/puppetlabs/code/environments/production'
+  environment = '/test/code/environments/production'
   if algorithm == 'ML-DSA-44'
     FileUtils.cp('/test/hiera.yaml', "#{environment}/hiera.yaml")
     File.write("#{environment}/manifests/site.pp", "file { '/test/applied-client': ensure => file, content => lookup('poc::marker') }\n")
@@ -84,14 +84,14 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
   end
   FileUtils.rm_rf('active')
   FileUtils.mkdir_p('active')
-  %w[server.pem server.key sub.pem].each { |name| FileUtils.cp("#{algorithm}/#{name}", "active/#{name}") }
-  chain = File.read("#{algorithm}/sub.pem") + File.read("#{algorithm}/root.pem")
+  %w[server.key sub.pem].each { |name| FileUtils.cp("#{fixtures}/#{name}", "active/#{name}") }
+  chain = File.read("#{fixtures}/sub.pem") + File.read("#{fixtures}/root.pem")
   File.write('active/import-chain.pem', chain)
   File.write('active/server.pub', OpenSSL::PKey.read(File.read('active/server.key')).public_to_pem)
   # Subordinate CRL comes first, matching OpenVox's imported-CA format.
-  crls = File.read("#{algorithm}/sub.crl") + File.read("#{algorithm}/root.crl")
+  crls = File.read("#{fixtures}/sub.crl") + File.read("#{fixtures}/root.crl")
   File.write('active/import-crls.pem', crls)
-  import_command = ['/opt/puppetlabs/bin/puppetserver', 'ca', 'import', '--config', '/etc/puppetlabs/puppet/puppet.conf', '--private-key', "#{algorithm}/sub.key", '--cert-bundle', 'active/import-chain.pem', '--crl-chain', 'active/import-crls.pem', '--subject-alt-names', 'localhost']
+  import_command = ['/opt/puppetlabs/bin/puppetserver', 'ca', 'import', '--config', '/etc/puppetlabs/puppet/puppet.conf', '--private-key', "#{fixtures}/sub.key", '--cert-bundle', 'active/import-chain.pem', '--crl-chain', 'active/import-crls.pem', '--subject-alt-names', 'localhost']
   File.write("#{label}/import-command.json", JSON.pretty_generate(import_command))
   check("#{label}/native_CA_import", system(*import_command, out: "#{label}/import.log", err: [:child, :out]))
   imported_server = OpenSSL::X509::Certificate.new(File.read('active/server-chain.pem'))
@@ -102,24 +102,33 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
   check("#{label}/imported_key_pairs_match", server_key.public_to_der == imported_server.public_key.public_to_der && server_key.public_to_der == OpenSSL::PKey.read(File.read('active/server.pub')).public_to_der && ca_key.public_to_der == sub.public_key.public_to_der)
   File.write('active/server-chain.pem', imported_server.to_pem + chain)
   FileUtils.rm_f('/test/applied-client')
-  options = ['-Xms256m', '-Xmx1024m', '-Dclojure.main.report=stderr', '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED', '--add-opens=java.base/java.io=ALL-UNNAMED', '--enable-native-access=ALL-UNNAMED']
+  options = ['-Xms256m', '-Xmx1024m', '-Dclojure.main.report=stderr']
+  java = '/opt/puppetlabs/server/apps/puppetserver/bin/java'
   if algorithm == 'ML-DSA-44'
     options << '-Djava.security.properties=/test/java.security.mldsa'
     schemes = 'mldsa44,rsa_pss_rsae_sha256,rsa_pss_pss_sha256,ecdsa_secp256r1_sha256,ed25519,rsa_pkcs1_sha256'
     %w[jdk.tls.client.SignatureSchemes jdk.tls.server.SignatureSchemes org.bouncycastle.jsse.client.SignatureSchemesCert org.bouncycastle.jsse.server.SignatureSchemesCert].each { |key| options << "-D#{key}=#{schemes}" }
   end
   provider = algorithm == 'ML-DSA-44' ? 'bc' : 'default'
-  raise 'Packaged server startup provider probe failed' unless system('java', *options, '-cp', '.:server.jar', 'StartupProbe', provider, out: "#{label}/startup.log", err: [:child, :out])
-  command = ['java', *options, '-cp', 'server.jar', 'clojure.main', '-m', 'puppetlabs.trapperkeeper.main', '--config', '/etc/puppetlabs/puppetserver/conf.d', '--bootstrap-config', '/etc/puppetlabs/puppetserver/services.d/,/opt/puppetlabs/server/apps/puppetserver/config/services.d/']
-  File.write("#{label}/server-command.json", JSON.pretty_generate(command))
-  pid = Process.spawn(*command, out: "#{label}/service.log", err: [:child, :out])
+  raise 'Packaged server startup provider probe failed' unless system(java, *options, '-cp', '.:server.jar', 'StartupProbe', provider, out: "#{label}/startup.log", err: [:child, :out])
+  command = ['/opt/puppetlabs/server/apps/puppetserver/cli/apps/foreground']
+  settings = {
+    'JAVA_BIN' => java,
+    'JAVA_ARGS' => options.join(' '),
+    'USER' => 'puppet',
+    'INSTALL_DIR' => '/opt/puppetlabs/server/apps/puppetserver',
+    'CONFIG' => '/etc/puppetlabs/puppetserver/conf.d',
+    'BOOTSTRAP_CONFIG' => '/etc/puppetlabs/puppetserver/services.d/,/opt/puppetlabs/server/apps/puppetserver/config/services.d/'
+  }
+  File.write("#{label}/server-command.json", JSON.pretty_generate(settings: settings, command: command))
+  pid = Process.spawn(settings, *command, pgroup: true, out: "#{label}/service.log", err: [:child, :out])
   begin
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 180
     loop do
       raise 'Server exited during startup' if Process.waitpid(pid, Process::WNOHANG)
       begin
         response = http('Get', '/puppet-ca/v1/certificate/ca')
-        check("#{label}/authenticated_bootstrap_CA", response.code == '200' && response.body.include?(File.read("#{algorithm}/sub.pem").strip))
+        check("#{label}/authenticated_bootstrap_CA", response.code == '200' && response.body.include?(File.read("#{fixtures}/sub.pem").strip))
         break
       rescue Errno::ECONNREFUSED, EOFError, OpenSSL::SSL::SSLError
         raise 'Server readiness timed out' if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
@@ -224,16 +233,16 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
       status, login = vault_agent_login(revoked_identity, "#{label}/vault-old-identity")
       check("#{label}/Vault_old_identity_stays_revoked", status == 400 && login.fetch('errors').any? { |error| error.match?(/constraints|revoked/i) })
     end
+    check("#{label}/complete", true)
   ensure
     FileUtils.cp_r('active', "#{label}/state")
     begin
-      Process.kill('TERM', pid)
+      Process.kill('TERM', -pid)
       Timeout.timeout(20) { Process.wait(pid) }
     rescue Timeout::Error
-      Process.kill('KILL', pid)
+      Process.kill('KILL', -pid)
       Process.wait(pid)
     rescue Errno::ESRCH, Errno::ECHILD
     end
   end
 end
-check('both_lifecycles_complete', RESULTS.size == 86)

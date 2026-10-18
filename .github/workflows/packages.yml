@@ -35,11 +35,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: scripts/prepare.sh
-      - name: Verify server recipe
+      - name: Verify source recipes and Bundler isolation
         run: |
           ruby tests/server-recipe.rb
           ruby tests/source-recipe.rb
           ruby tests/bundler-env.rb
+          ruby tests/build-manifest.rb
+          ruby tests/acceptance-diagnostics.rb
       - name: Vault source tests
         run: scripts/test-vault.sh
       - name: Build agent
@@ -52,8 +54,29 @@ jobs:
         run: scripts/source-tests.sh
       - name: Record successful build checks
         run: |
-          # shellcheck disable=SC2016
-          ruby -rjson -e 'p="dist/build-manifest.json"; m=JSON.parse(File.read(p)); m["checks"]={"source_tests"=>"passed","vault_source_tests"=>"passed","agent_package_tests"=>"passed","server_recipe"=>"passed"}; m["runtime_inputs"]={"agent_runtime"=>JSON.parse(File.read("sources/openvox/packaging/configs/components/puppet-runtime.json")),"agent_crypto"=>File.readlines("dist/agent-test.log").find { |line| line.start_with?("Ruby ") }&.strip || abort("Missing installed agent runtime report"),"java"=>`java -version 2>&1`.strip}; m["sha256"]=Dir["dist/*.deb"].to_h { |f| [File.basename(f), `sha256sum #{f}`.split.first] }; File.write(p,JSON.pretty_generate(m)+"\n")'
+          ruby -rjson -rdigest <<'RUBY'
+          manifest_path = 'dist/build-manifest.json'
+          manifest = JSON.parse(File.read(manifest_path))
+          agent_log = 'dist/agent-test.log'
+          agent_crypto = File.file?(agent_log) && File.readlines(agent_log).find { |line| line.start_with?('Ruby ') }
+          abort 'Missing installed agent runtime report' unless agent_crypto
+
+          manifest['checks'] = {
+            'source_tests' => 'passed',
+            'vault_source_tests' => 'passed',
+            'agent_package_tests' => 'passed',
+            'server_recipe' => 'passed'
+          }
+          manifest['runtime_inputs'] = {
+            'agent_runtime' => JSON.parse(File.read('sources/openvox/packaging/configs/components/puppet-runtime.json')),
+            'agent_crypto' => agent_crypto.strip,
+            'java' => `java -version 2>&1`.strip
+          }
+          manifest['sha256'] = Dir['dist/*.deb'].to_h do |package_path|
+            [File.basename(package_path), Digest::SHA256.file(package_path).hexdigest]
+          end
+          File.write(manifest_path, JSON.pretty_generate(manifest) + "\n")
+          RUBY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: packages
@@ -91,6 +114,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y apt-utils
+          gh --version
           export GNUPGHOME
           GNUPGHOME=$(mktemp -d)
           chmod 700 "$GNUPGHOME"
@@ -99,8 +123,47 @@ jobs:
           scripts/publish.sh
       - name: Anonymous APT and installed-package acceptance
         run: scripts/acceptance.sh "$CANDIDATE_URL" openvox-archive-keyring.asc "${PREVIOUS_AGENT:-}" "${PREVIOUS_SERVER:-}"
+      - name: Retain acceptance diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: acceptance-diagnostics
+          path: |
+            evidence/acceptance/host-status.txt
+            evidence/acceptance/build.log
+            evidence/acceptance/status.txt
+            evidence/acceptance/scope.txt
+            evidence/acceptance/versions.txt
+            evidence/acceptance/generate.log
+            evidence/acceptance/crls.log
+            evidence/acceptance/vault-setup.log
+            evidence/acceptance/lifecycle.log
+            evidence/acceptance/results.txt
+            evidence/acceptance/RSA-lifecycle/import.log
+            evidence/acceptance/RSA-lifecycle/startup.log
+            evidence/acceptance/RSA-lifecycle/service.log
+            evidence/acceptance/RSA-lifecycle/agent-first.log
+            evidence/acceptance/RSA-lifecycle/agent-second.log
+            evidence/acceptance/RSA-lifecycle/agent-good.log
+            evidence/acceptance/RSA-lifecycle/agent-denied.log
+            evidence/acceptance/RSA-lifecycle/agent-replacement.log
+            evidence/acceptance/RSA-lifecycle/tls-negotiation.json
+            evidence/acceptance/RSA-lifecycle/revocation-error.txt
+            evidence/acceptance/ML-DSA-44-lifecycle/import.log
+            evidence/acceptance/ML-DSA-44-lifecycle/startup.log
+            evidence/acceptance/ML-DSA-44-lifecycle/service.log
+            evidence/acceptance/ML-DSA-44-lifecycle/agent-first.log
+            evidence/acceptance/ML-DSA-44-lifecycle/agent-second.log
+            evidence/acceptance/ML-DSA-44-lifecycle/agent-good.log
+            evidence/acceptance/ML-DSA-44-lifecycle/agent-denied.log
+            evidence/acceptance/ML-DSA-44-lifecycle/agent-replacement.log
+            evidence/acceptance/ML-DSA-44-lifecycle/tls-negotiation.json
+            evidence/acceptance/ML-DSA-44-lifecycle/revocation-error.txt
+            evidence/acceptance/package-puppetserver.log
+            evidence/acceptance/package-puppetserver-daemon.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Promote tested candidate
         run: |
-          id=$(gh api "repos/$GH_REPO/releases/tags/$CANDIDATE_TAG" --jq .id)
           printf '\nAcceptance: passed\n' >> RELEASE-NOTES.md
-          gh api --method PATCH "repos/$GH_REPO/releases/$id" -f make_latest=true -f body="$(cat RELEASE-NOTES.md)" >/dev/null
+          gh release edit "$CANDIDATE_TAG" --latest --notes-file RELEASE-NOTES.md

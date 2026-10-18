@@ -12,24 +12,6 @@ export BUNDLE_PATH=${BUNDLE_PATH:-${RUNNER_TEMP:-/tmp}/openvox-packages-bundle}
 cd sources/openvox
 bundle install --jobs 4
 cd packaging
-# Vanagon appends +ubuntu26.04 itself; keep the Debian revision separate.
-ruby -e '
-  path = "configs/projects/openvox-agent.rb"
-  source = File.read(path)
-  marker = "  proj.write_version_file"
-  abort "Missing Vanagon version marker" unless source.include?(marker)
-  File.write(path, source.sub(marker, "  proj.release \"1\"\n" + marker))
-'
-# The upstream default still provisions Java 8 and labels this platform noble.
-cat > configs/platforms/ubuntu-26.04-amd64.rb <<'RUBY'
-platform 'ubuntu-26.04-amd64' do |plat|
-  plat.inherit_from_default
-  plat.codename 'resolute'
-  plat.use_docker_exec true
-  plat.clear_provisioning
-  plat.provision_with 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -qy --no-install-recommends build-essential ca-certificates curl debhelper devscripts fakeroot gettext pkg-config quilt rsync'
-end
-RUBY
 bundle exec vanagon build openvox-agent ubuntu-26.04-amd64 --engine docker --preserve never
 mapfile -t packages < <(find output -type f -name 'openvox-agent*_amd64.deb')
 [[ ${#packages[@]} == 1 ]] || { echo 'Expected exactly one agent .deb' >&2; exit 1; }

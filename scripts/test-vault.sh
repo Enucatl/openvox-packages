@@ -18,16 +18,7 @@ spec.add_dependency('puppet-syntax', '~> 7.3')
 File.write('puppetlabs_spec_helper-8.0.0/puppetlabs_spec_helper.gemspec', spec.to_ruby)
 RUBY
 cd ..
-ruby - "$root/sources/openvox" <<'RUBY'
-File.write('Gemfile.packages', <<~GEMFILE)
-  source 'https://rubygems.org'
-  gem 'openvox', path: #{ARGV.fetch(0).dump}
-  gem 'puppetlabs_spec_helper', path: '.package-test-gems/puppetlabs_spec_helper-8.0.0', require: false
-  gem 'rspec-puppet-facts', '~> 6.3', require: false
-  gem 'rake', '~> 13.0', require: false
-GEMFILE
-RUBY
-export BUNDLE_GEMFILE=$PWD/Gemfile.packages
+export BUNDLE_GEMFILE=$root/tests/Gemfile.vault
 bundle install
 # shellcheck disable=SC2016
 bundle exec ruby -e 'require "puppet"; abort "Wrong Puppet source" unless $LOADED_FEATURES.any? { |path| path.include?("/sources/openvox/lib/puppet.rb") }'

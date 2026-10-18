@@ -2,9 +2,8 @@ require 'tmpdir'
 require 'open3'
 require 'rbconfig'
 
-script = File.read(File.expand_path('../scripts/source-tests.sh', __dir__))
+entrypoint = File.expand_path('../scripts/server-specs.rb', __dir__)
 bundle = [RbConfig.ruby, Gem.bin_path('bundler', 'bundle')]
-expression = script.match(/bundle exec ruby -rrake -e '([^']+)'/).captures.first
 Dir.mktmpdir do |root|
   rake = Gem::Specification.find_by_name('rake').version
   File.write("#{root}/Gemfile", "source 'https://rubygems.org'\ngem 'rake', '= #{rake}'\n")
@@ -23,9 +22,10 @@ Dir.mktmpdir do |root|
   env = { 'BUNDLE_GEMFILE' => "#{root}/Gemfile" }
   out, status = Open3.capture2e(env, *bundle, 'lock', '--local', chdir: root)
   abort out unless status.success?
-  _, inherited = Open3.capture2e(env, *bundle, 'exec', 'ruby', '-rrake', '-e', 'Rake.application.run(["spec"])', chdir: root)
+  leaked, inherited = Open3.capture2e(env, *bundle, 'exec', 'ruby', '-rrake', '-e', 'Rake.application.run(["spec"])', chdir: root)
   raise 'Regression fixture did not detect the original leak' if inherited.success?
-  out, status = Open3.capture2e(env, *bundle, 'exec', 'ruby', '-rrake', '-e', expression, chdir: root)
+  raise "Original command failed for another reason: #{leaked}" unless leaked.include?('RUBYOPT contains Bundler')
+  out, status = Open3.capture2e(env, *bundle, 'exec', 'ruby', entrypoint, chdir: root)
   abort out unless status.success?
   raise 'Rake child never ran' unless out.include?('Rake child environment is clean')
 end

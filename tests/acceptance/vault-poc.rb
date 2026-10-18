@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 require 'openssl'
-require 'socket'
 require 'net/http'
 require 'json'
 require 'securerandom'
@@ -71,29 +70,29 @@ def api(path, body = nil, token: File.read("#{DIR}/root-token"))
 end
 
 def login(name, cert = nil, private_key = nil, chain = [])
-  context = OpenSSL::SSL::SSLContext.new
-  context.min_version = OpenSSL::SSL::TLS1_3_VERSION
-  context.ca_file = "#{DIR}/root.pem"
-  context.verify_mode = OpenSSL::SSL::VERIFY_PEER
-  context.cert = cert if cert
-  context.key = private_key if private_key
-  context.extra_chain_cert = chain
-  tcp = TCPSocket.new('127.0.0.1', 8202)
-  socket = OpenSSL::SSL::SSLSocket.new(tcp, context)
-  socket.sync_close = true
-  socket.hostname = 'localhost'
-  socket.connect
-  socket.post_connection_check('localhost')
-  body = JSON.generate(name: name)
-  socket.write("POST /v1/auth/cert/login HTTP/1.0\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}")
-  raw = socket.read
-  status = raw.lines.first.split[1].to_i
-  payload = JSON.parse(raw.split("\r\n\r\n", 2).last)
+  connection = Net::HTTP.new('localhost', 8202, nil)
+  connection.use_ssl = true
+  connection.min_version = OpenSSL::SSL::TLS1_3_VERSION
+  connection.ca_file = "#{DIR}/root.pem"
+  connection.verify_mode = OpenSSL::SSL::VERIFY_PEER
+  connection.verify_hostname = true
+  connection.cert = cert if cert
+  connection.key = private_key if private_key
+  connection.extra_chain_cert = chain
+  connection.open_timeout = 5
+  connection.read_timeout = 30
+  request = Net::HTTP::Post.new('/v1/auth/cert/login')
+  request['Content-Type'] = 'application/json'
+  request.body = JSON.generate(name: name)
+  response = connection.start do |http|
+    # Net::HTTP does not expose the negotiated protocol or cipher.
+    socket = http.instance_variable_get(:@socket).io
+    puts "TLS #{socket.ssl_version} #{socket.cipher[0]}; peer public-key OID #{OpenSSL::ASN1.decode(http.peer_cert.public_key.public_to_der).value[0].value[0].oid} signature #{http.peer_cert.signature_algorithm}"
+    http.request(request)
+  end
+  payload = JSON.parse(response.body)
   write("login-#{name}-#{cert ? cert.serial : 'missing'}.json", JSON.pretty_generate(payload))
-  puts "TLS #{socket.ssl_version} #{socket.cipher[0]}; peer public-key OID #{OpenSSL::ASN1.decode(socket.peer_cert.public_key.public_to_der).value[0].value[0].oid} signature #{socket.peer_cert.signature_algorithm}; HTTP #{status}"
-  [status, payload]
-ensure
-  socket&.close
+  [response.code.to_i, payload]
 end
 
 puts `vault version`
@@ -140,16 +139,14 @@ begin
   root_crl_response = Net::HTTP.start('127.0.0.1', 8200, nil) { |http| http.get('/v1/pki/crl/pem') }
   raise 'Vault root CRL download failed' unless root_crl_response.is_a?(Net::HTTPSuccess)
   root_crl = OpenSSL::X509::CRL.new(root_crl_response.body)
-  write('root-crl.pem', root_crl.to_pem)
+  write('root.crl', root_crl.to_pem)
   assert(root_crl.signature_algorithm == 'ML-DSA-44' && root_crl.verify(root.public_key), 'Vault root CRL uses verified ML-DSA-44 signature')
   sub_key = key
   sub_csr = request_for(sub_key, 'OpenVox ML-DSA-44 CA')
   write('sub.key', sub_key.private_to_pem)
-  write('sub.csr', sub_csr.to_pem)
   sub_data = api('pki/root/sign-intermediate', { csr: sub_csr.to_pem, common_name: 'OpenVox ML-DSA-44 CA', ttl: '12h', max_path_length: 0, use_csr_values: true })
   sub = OpenSSL::X509::Certificate.new(sub_data.fetch('certificate'))
   write('sub.pem', sub.to_pem)
-  write('ca-chain.pem', sub.to_pem + root.to_pem)
   sub_crl = OpenSSL::X509::CRL.new
   sub_crl.version = 1
   sub_crl.issuer = sub.subject
@@ -160,8 +157,7 @@ begin
   crl_extensions.issuer_certificate = sub
   sub_crl.add_extension(crl_extensions.create_extension('authorityKeyIdentifier', 'keyid:always'))
   sub_crl.sign(sub_key, nil)
-  write('sub-crl.pem', sub_crl.to_pem)
-  write('crl-chain.pem', sub_crl.to_pem + root_crl.to_pem)
+  write('sub.crl', sub_crl.to_pem)
   assert(sub.verify(root.public_key), 'Vault signed external ML-DSA-44 subordinate CSR')
   assert(sub.extensions.any? { |e| e.oid == 'basicConstraints' && e.value == 'CA:TRUE, pathlen:0' && e.critical? }, 'Subordinate has critical CA:TRUE,pathlen:0')
   assert(sub.extensions.any? { |e| e.oid == 'keyUsage' && e.value.include?('Certificate Sign') && e.value.include?('CRL Sign') }, 'Subordinate permits certificate and CRL signing')
@@ -170,9 +166,6 @@ begin
   sleep 1.5
   client_key = key
   client = certificate(client_key, 'agent.test', sub, sub_key)
-  write('client.key', client_key.private_to_pem)
-  write('client.pem', client.to_pem)
-  write('client-chain.pem', client.to_pem + sub.to_pem)
   [root, sub, server, client].each do |cert|
     assert(OpenSSL::ASN1.decode(cert.public_key.public_to_der).value[0].value[0].oid == '2.16.840.1.101.3.4.3.17' && cert.signature_algorithm == 'ML-DSA-44', "ML-DSA-44 key and signature: #{cert.subject}")
   end
@@ -185,12 +178,12 @@ begin
   rogue_sub = certificate(rogue_key, 'OpenVox ML-DSA-44 CA', ca: true)
   rogue_client = certificate(client_key, 'agent.test', rogue_sub, rogue_key)
   status, payload = login('openvox', rogue_client, client_key, [rogue_sub])
-  assert(status == 400 && payload.fetch('errors').any? { |e| e.include?('invalid') || e.include?('failed') || e.include?('certificate') }, 'Vault certificate auth rejects same-name wrong issuer')
+  assert(status == 400 && payload.fetch('errors').any? { |e| e.include?('failed to match all constraints') }, 'Vault certificate auth rejects same-name wrong issuer')
   wrong_name = certificate(client_key, 'other.test', sub, sub_key)
   status, payload = login('openvox', wrong_name, client_key, [sub])
-  assert(status == 400 && payload.fetch('errors').any?, 'Vault certificate auth rejects unauthorized name under correct issuer')
+  assert(status == 400 && payload.fetch('errors').any? { |e| e.include?('failed to match all constraints') }, 'Vault certificate auth rejects unauthorized name under correct issuer')
   status, payload = login('openvox')
-  assert(status == 400 && payload.fetch('errors').any? { |e| e.include?('certificate') }, 'Vault certificate auth rejects missing client certificate')
+  assert(status == 400 && payload.fetch('errors').any? { |e| e.include?('client certificate must be supplied') }, 'Vault certificate auth rejects missing client certificate')
   completed = true
   puts 'PASS Vault hierarchy and cert-auth PoC complete'
 ensure

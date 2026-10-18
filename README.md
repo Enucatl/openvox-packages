@@ -45,6 +45,28 @@ The server depends on the exact tested agent version. Both rebuild together.
 Rollback on a server must name both matching package versions and explicitly
 allow downgrades. Agent-only hosts do not need the server.
 
+## Recovering a failed run
+
+After a publication or acceptance failure, fix the cause and rebuild the complete
+package pair: choose **Re-run all jobs** in Actions, or start a new `packages.yml`
+workflow run on `main`. Rerunning all jobs regenerates the packages and manifest
+with the new attempt number; a new workflow run uses a new run number. If the fix
+changes the coordinator, start a new workflow run to use the updated revision;
+reruns use the original coordinator revision.
+
+Do not choose **Re-run failed jobs** or retry only the publisher. When the build
+job already succeeded, that path downloads its original `packages` artifact and
+restores the original build number from the manifest, despite the increased
+workflow attempt number. It can therefore collide with the existing candidate
+tag. For example, acceptance may fail after the candidate has been published;
+leave that candidate and its assets intact and rebuild under a new build number.
+Do not delete or overwrite published candidate assets to make a retry succeed.
+The candidate stays out of latest until acceptance passes and promotion succeeds.
+
+An older run can still fail the version-ordering guard after a newer run has
+been promoted, even when all jobs are rerun. Start a new workflow run in that
+case; increasing the attempt alone cannot advance an older run past a newer one.
+
 ## Installation
 
 After validating the full fingerprint through your trusted operator path,
@@ -75,15 +97,25 @@ Never use `Trusted: yes` or disable signature/hash checks.
 
 ## Checks
 
-`tests/archive.sh` exercises archive integrity. `tests/server-recipe.rb` checks
-recipe changes. Source tests and installed-agent ML-DSA checks precede candidate
+`tests/archive.sh` exercises archive integrity. `tests/server-recipe.rb` invokes
+`scripts/configure-build.rb` to check coordinated versions, local SSL coordinates
+and invalid inputs, and tests the local CA gem installer. `tests/source-recipe.rb`
+checks that the Vault bundle resolves the local OpenVox fork. `tests/bundler-env.rb`
+runs the same `scripts/server-specs.rb` entry point as the source tests and rejects
+the original MRI Bundler environment leak into Rake's child processes.
+`tests/build-manifest.rb` runs the workflow's recording step against fixtures to
+verify identity, check records, runtime inputs, checksums and missing evidence.
+Source tests and installed-agent ML-DSA checks precede candidate
 publication. Package acceptance exercises anonymous APT, missing-key rejection,
 paired upgrade/rollback when a previous release exists, and installed-package
 RSA/ML-DSA enrollment, catalogs, renewal, revocation and Vault integration.
+The lifecycle uses the installed authorization file and foreground launcher with
+explicit Java/provider settings. Packaged systemd startup remains unverified
+until the disposable Ubuntu 26.04 VM check.
 Acceptance evidence includes disposable private identities; it is never uploaded
 as public release assets. Ubuntu 24.04 and Debian/Proxmox are outside this build.
 
-Vault source tests run early with a generated test bundle against the local
+Vault source tests run early with `tests/Gemfile.vault` against the local
 OpenVox fork. Its official helper 8.0.0 uses a workspace-only dependency override
 for current syntax tooling, alongside facts helper 6.3. Remove that override when
 the upstream helper supports the OpenVox syntax dependency directly.

@@ -1,36 +1,90 @@
 require 'tmpdir'
 require 'fileutils'
+require 'open3'
+require 'rbconfig'
 
-sources = ARGV.fetch(0, File.expand_path('../sources', __dir__))
+sources = File.expand_path(ARGV.fetch(0, File.expand_path('../sources', __dir__)))
+configure = File.expand_path('../scripts/configure-build.rb', __dir__)
 ssl_version = File.read("#{sources}/jvm-ssl-utils/project.clj").match(/\(defproject org.openvoxproject\/ssl-utils "([^"]+)"/)[1].delete_suffix('-SNAPSHOT')
-script = File.read(File.expand_path('../scripts/build-server.sh', __dir__))
-rewrite = script.split("<<'RUBY'\n", 2).fetch(1).split("\nRUBY", 2).first
-Dir.mktmpdir do |root|
-  FileUtils.mkdir_p("#{root}/openvox-server/resources/ext")
-  FileUtils.mkdir_p("#{root}/jvm-ssl-utils")
-  FileUtils.cp("#{sources}/jvm-ssl-utils/project.clj", "#{root}/jvm-ssl-utils/project.clj")
-  FileUtils.cp("#{sources}/openvox-server/Dockerfile", "#{root}/openvox-server/Dockerfile")
-  FileUtils.cp("#{sources}/openvox-server/project.clj", "#{root}/openvox-server/project.clj")
-  FileUtils.cp("#{sources}/openvox-server/resources/ext/ezbake.conf", "#{root}/openvox-server/resources/ext/ezbake.conf")
-  FileUtils.cp_r("#{sources}/openvox-server/resources/ext/build-scripts", "#{root}/openvox-server/resources/ext/")
-  ARGV.replace([root, '9.1.1+homelab.42-1+ubuntu26.04', '9.1.0+homelab.42-1+ubuntu26.04'])
-  eval(rewrite, binding, 'build-server.sh recipe')
-  raise 'Wrong SSL version' unless File.read("#{root}/jvm-ssl-utils/project.clj").include?("#{ssl_version}-homelab.42")
-  raise 'Wrong builder Java' unless File.read("#{root}/openvox-server/Dockerfile").include?('java-25-openjdk-headless')
-  project = File.read("#{root}/openvox-server/project.clj")
 server_base = File.read("#{sources}/openvox-server/project.clj").match(/\(defproject org.openvoxproject\/puppetserver "([^"]+)"/)[1].delete_suffix('-SNAPSHOT')
-raise 'Wrong server Maven version' unless project.include?("(defproject org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"")
-raise 'Wrong EZbake self dependency' unless project.scan("[org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"]").size == 2
-  raise 'Wrong SSL dependency' unless project.include?("[org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.42\"]")
-  raise 'Missing security file' unless project.include?(':project-files [{:file "resources/ext/java.security.mldsa"')
-  raise 'Wrong agent dependency' unless File.read("#{root}/openvox-server/resources/ext/ezbake.conf").include?('openvox-agent (= 9.1.0+homelab.42-1+ubuntu26.04)')
-  raise 'Public CA gem still listed' unless File.empty?("#{root}/openvox-server/resources/ext/build-scripts/mri-gem-list-no-dependencies.txt")
-  raise 'Invalid gem installer' unless system('bash', '-n', "#{root}/openvox-server/resources/ext/build-scripts/install-vendored-gems.sh")
-  begin
-    eval(rewrite, binding, 'build-server.sh recipe')
-    raise 'Unexpectedly accepted changed inputs'
-  rescue RuntimeError => error
-    raise unless error.message == 'Unexpected builder Java version'
+server_version = '9.1.1+homelab.42-1+ubuntu26.04'
+agent_version = '9.1.0+homelab.42-1+ubuntu26.04'
+
+Dir.mktmpdir do |root|
+  paths = %w[jvm-ssl-utils/project.clj openvox-server/project.clj openvox-server/resources/ext/ezbake.conf]
+  reset = lambda do
+    paths.each do |path|
+      FileUtils.mkdir_p(File.dirname("#{root}/#{path}"))
+      FileUtils.cp("#{sources}/#{path}", "#{root}/#{path}")
+    end
   end
+  [[], [server_version, agent_version]].each do |versions|
+    reset.call
+    _, error, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
+    raise error unless status.success?
+    suffix = versions.empty? ? 'source' : '42'
+    project = File.read("#{root}/openvox-server/project.clj")
+    raise 'Wrong SSL artifact' unless File.read("#{root}/jvm-ssl-utils/project.clj").include?("(defproject org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.#{suffix}\"")
+    raise 'Wrong SSL dependency' unless project.include?("[org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.#{suffix}\"]")
+    unless versions.empty?
+      raise 'Wrong server Maven version' unless project.include?("(defproject org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"")
+      raise 'Wrong EZbake self dependency' unless project.scan("[org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"]").size == 2
+      raise 'Wrong agent dependency' unless File.read("#{root}/openvox-server/resources/ext/ezbake.conf").include?("openvox-agent (= #{agent_version})")
+    end
+    _, error, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
+    raise 'Accepted an already modified project' if status.success?
+    raise error unless error.include?('Expected uncoordinated SSL project version')
+  end
+
+  reset.call
+  paths.first(2).each do |path|
+    File.write("#{root}/#{path}", File.read("#{root}/#{path}").gsub('-SNAPSHOT', ''))
+  end
+  _, error, status = Open3.capture3(RbConfig.ruby, configure, root, server_version, agent_version)
+  raise "Release source versions failed: #{error}" unless status.success?
+
+  [[server_version, agent_version.sub('.42-', '.43-')], ['bad', agent_version], [server_version]].each do |versions|
+    reset.call
+    before = paths.map { |path| File.read("#{root}/#{path}") }
+    _, _, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
+    raise 'Accepted invalid versions' if status.success?
+    raise 'Changed files on invalid input' unless paths.map { |path| File.read("#{root}/#{path}") } == before
+  end
+  ['openvox-server/project.clj', 'openvox-server/resources/ext/ezbake.conf'].each do |path|
+    reset.call
+    File.write("#{root}/#{path}", '')
+    before = paths.map { |file| File.read("#{root}/#{file}") }
+    _, _, status = Open3.capture3(RbConfig.ruby, configure, root, server_version, agent_version)
+    raise 'Accepted a changed dependency' if status.success?
+    raise 'Partially changed an invalid recipe' unless paths.map { |file| File.read("#{root}/#{file}") } == before
+  end
+
+  FileUtils.cp_r("#{sources}/openvox-server/resources/ext/build-scripts", root)
+  FileUtils.mkdir_p("#{root}/bin")
+  File.write("#{root}/bin/java", <<~'SH')
+    #!/bin/bash
+    printf '%s\n' "$*" >> "$JAVA_LOG"
+    if [[ $* == *openvoxserver-ca* ]]; then
+      exit "${JAVA_STATUS:-0}"
+    fi
+  SH
+  FileUtils.chmod(0755, "#{root}/bin/java")
+  env = { 'PATH' => "#{root}/bin:#{ENV.fetch('PATH')}", 'JAVA_LOG' => "#{root}/java.log", 'DESTDIR' => root }
+  installer = "#{root}/build-scripts/install-vendored-gems.sh"
+  [false, true].each do |local|
+    File.write("#{root}/build-scripts/openvoxserver-ca.gem", 'local gem fixture') if local
+    FileUtils.rm_f(env['JAVA_LOG'])
+    _, error, status = Open3.capture3(env, 'bash', installer, chdir: root)
+    raise error unless status.success?
+    commands = File.readlines(env['JAVA_LOG']).grep(/openvoxserver-ca/)
+    raise 'Expected one CA installation' unless commands.size == 1
+    if local
+      raise 'Local CA gem not installed in isolation' unless commands.first.include?("install --local --ignore-dependencies --no-document #{root}/build-scripts/openvoxserver-ca.gem")
+    else
+      raise 'Public fallback changed' unless commands.first.include?('openvoxserver-ca:3.3.0')
+    end
+  end
+  _, _, status = Open3.capture3(env.merge('JAVA_STATUS' => '23'), 'bash', installer, chdir: root)
+  raise 'Ignored gem installer failure' unless status.exitstatus == 23
 end
-puts 'Server recipe checks passed'
+puts 'Coordinated recipe and local CA installation checks passed'

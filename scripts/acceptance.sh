@@ -11,11 +11,16 @@ context=$(mktemp -d)
 image="openvox-package-acceptance:${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
 container="openvox-package-acceptance-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
 mkdir -p "$root/evidence/acceptance"
+stage='prepare acceptance image'
 # shellcheck disable=SC2317 # Invoked by the EXIT trap.
 cleanup() {
   code=$?
   trap - EXIT
-  docker cp "$container:/test/." "$root/evidence/acceptance/" 2>/dev/null || true
+  printf 'stage=%s\nexit_code=%s\n' "$stage" "$code" > "$root/evidence/acceptance/host-status.txt"
+  if (( code != 0 )); then
+    printf 'Acceptance failed during %s (exit %s); see acceptance diagnostics.\n' "$stage" "$code" >&2
+  fi
+  "$root/scripts/acceptance-diagnostics.sh" "$container" "$root/evidence/acceptance" || true
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker image rm "$image" >/dev/null 2>&1 || true
   rm -rf "$context"
@@ -25,8 +30,11 @@ trap cleanup EXIT
 cp -R "$root/tests/acceptance/." "$context/"
 cp "$key" "$context/archive-key.asc"
 cp -R "$root/sources/vault/lib" "$context/vault-module"
-docker build --build-arg "APT_URL=$url" --build-arg "AGENT_VERSION=$AGENT_VERSION" --build-arg "SERVER_VERSION=$SERVER_VERSION" --build-arg "PREVIOUS_AGENT=${3:-}" --build-arg "PREVIOUS_SERVER=${4:-}" -t "$image" "$context"
+stage='build acceptance image and install packages'
+docker build --progress plain --build-arg "APT_URL=$url" --build-arg "AGENT_VERSION=$AGENT_VERSION" --build-arg "SERVER_VERSION=$SERVER_VERSION" --build-arg "PREVIOUS_AGENT=${3:-}" --build-arg "PREVIOUS_SERVER=${4:-}" -t "$image" "$context" 2>&1 | tee "$root/evidence/acceptance/build.log"
+stage='create acceptance container'
 docker create --name "$container" --network none --cap-drop ALL --security-opt no-new-privileges --memory 3g "$image" >/dev/null
+stage='run acceptance setup and lifecycle'
 timeout 1200 docker start -a "$container"
 [[ $(docker inspect --format '{{.State.Running}}' "$container") == false ]]
 exit "$(docker inspect --format '{{.State.ExitCode}}' "$container")"

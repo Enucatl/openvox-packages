@@ -3,3 +3,4 @@
 /evidence/
 /.server-build.*/
 /.bundle/
+/tests/Gemfile.vault.lock
