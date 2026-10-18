@@ -1,6 +1,20 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: simplified implementation verified, 18 October 2026. Release `resolute-13001`
+Status: full coordinated delivery verified, 18 October 2026. Release
+[`resolute-18001`](https://github.com/Enucatl/openvox-packages/releases/tag/resolute-18001)
+passed [run 39154755798](https://github.com/Enucatl/openvox-packages/actions/runs/39154755798):
+shared source suites, native builds and signed APT/installed RSA/ML-DSA/Vault
+acceptance on Ubuntu 26.04, Ubuntu 24.04 and Debian 13, promotion, then image
+build/lifecycle checks and GHCR publication. Public tags `9.1.0-mldsa.18001`,
+`9.1.0` and `latest` were anonymously verified at digest
+`sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
+The release's `server-image.json` records the image and contained package
+provenance. Real control-repo integration, independent recovery and fleet
+cutover remain open.
+
+## Earlier package-delivery evidence
+
+The simplified implementation was verified in release `resolute-13001`, which
 passed the complete automated pipeline: builds, source suites, signed public APT
 installation, retained-pair rollback/upgrade, incompatible agent-only downgrade
 rejection and both installed RSA/ML-DSA/Vault lifecycles. It was automatically
@@ -47,8 +61,8 @@ The reusable image workflow is the coordinated pipeline's final job; pipeline
 success requires image build, lifecycle checks and GHCR publication to pass.
 Signed APT remains native-agent delivery and the image's package source; GHCR
 becomes server delivery. The Ubuntu image recipe, lifecycle smoke test and
-downstream `Server image` publication workflow are implemented. Hosted GHCR
-publication and real control-repo integration/recovery remain open gates.
+downstream `Server image` publication workflow are implemented and verified by
+the full run above. Real control-repo integration/recovery remains an open gate.
 
 The Ubuntu 26.04 container userland can run on the existing Docker host after
 container acceptance, independently of its host OS upgrade. Native Ubuntu 24.04
@@ -502,12 +516,15 @@ repository metadata valid for the intended update cadence; if we set
       `latest` are anonymously readable at digest
       `sha256:38a0923732977a0eae63305d2c53cb91b18321bf26142814ab916ff0524d300b`.
       Retain the release's `server-image.json` provenance for `infra` recovery.
+- [x] Pass the complete multi-target pipeline and final image publication in
+      `resolute-18001`, including default RSA and explicit ML-DSA image HTTPS,
+      graceful stop and identity-preserving recreation.
 - [ ] Run the live canary before fleet expansion. Keep actual deployed versions
       as records, not source pins.
 
-The pipeline now includes native Ubuntu 24.04 and Debian 13/Proxmox agent builds.
-Their first hosted candidate must pass the same installed acceptance before
-promotion. This does not change fleet configuration or complete the canary;
+The native Ubuntu 24.04 and Debian 13/Proxmox agent builds passed hosted installed
+acceptance alongside Ubuntu 26.04 in `resolute-18001`. This does not change fleet
+configuration or complete the canary;
 the server container's 26.04 userland remains independent of its host agent.
 
 The repository, signer and automatically promoted tested releases now exist. Fleet client

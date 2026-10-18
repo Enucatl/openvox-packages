@@ -1,13 +1,18 @@
 # ML-DSA OpenVox packages
 
 Coordinated fork packages targeting Ubuntu 26.04, Ubuntu 24.04 and Debian 13 amd64.
-Release `resolute-13001` validated Ubuntu 26.04 and passed
-the complete build, source suites, public signed APT, paired upgrade/rollback and
-installed RSA/ML-DSA/Vault lifecycles and was automatically promoted to latest.
-[Validation run](https://github.com/Enucatl/openvox-packages/actions/runs/39141160033)
-tested coordinator `caea3dde7605511102221d01612bc9b07b6b5742`; its
-[manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-13001/build-manifest.json)
-records all five exact source revisions and runtime inputs.
+Release `resolute-18001` passed the complete coordinated pipeline: shared source
+suites, native builds and signed APT/installed RSA/ML-DSA/Vault acceptance on
+all three targets, automatic promotion and the final GHCR image stage.
+[Successful run](https://github.com/Enucatl/openvox-packages/actions/runs/39154755798)
+tested coordinator `4f719cb678cc06a6f8c57a2e4a6a6915b84413c9`; its
+[package manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/build-manifest.json)
+records the resolved fork revisions and per-target inputs/results.
+The public image tags `9.1.0-mldsa.18001`, `9.1.0` and `latest` all resolve to
+`sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
+The [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/server-image.json)
+records their provenance. Image checks passed with default RSA and explicitly
+generated ML-DSA identities, verified HTTPS, shutdown and identity reuse.
 Fleet rollout and PKI migration remain separate operator work.
 
 OpenVox 9 Server is planned as a custom Ubuntu 26.04 container in
@@ -21,8 +26,8 @@ This is a deployment decision, not a completed container rollout; the APT
 pipeline remains the native-agent delivery path and image package source.
 After package acceptance, build and accept our fork server image, publish it
 to `ghcr.io/enucatl/openvox-server`, and deploy it by digest through `infra`.
-The image recipe and publication workflow are implemented below. Hosted
-publication, infra Compose integration and live acceptance remain separate work.
+The image recipe, publication workflow and hosted delivery are verified below.
+Infra Compose integration and live acceptance remain separate work.
 
 A push to `feature/mldsa44` in Enucatl/openvox, Enucatl/jvm-ssl-utils,
 Enucatl/openvox-server, Enucatl/openvoxserver-ca or Enucatl/vault dispatches
@@ -33,8 +38,9 @@ payload is reused byte-for-byte; only package versions and exact agent dependenc
 change for each OS. The publisher signs one flat APT archive and publishes a
 candidate without changing latest. Anonymous APT and installed-package lifecycle
 acceptance run in parallel on all three OSes; promotion requires every target to
-pass. Runs are serialized; failed runs leave latest unchanged. GitHub can
-coalesce pending runs, so rapid pushes rebuild the current coordinated heads.
+pass. Newer runs cancel superseded builds. Package/source failures prevent APT
+promotion; image aliases move after image tests. GitHub can coalesce pending
+runs, so rapid pushes rebuild the current coordinated heads.
 
 ## Credentials
 
@@ -82,18 +88,18 @@ uses the locked dependencies in `docker/server/uv.lock` at the helpers' existing
 Build and test an accepted release locally with GitHub CLI and Docker:
 
 ```sh
-bash scripts/server-image.sh resolute-13001
+bash scripts/server-image.sh resolute-18001
 ```
 
 The `Server image` reusable workflow is the final stage of `Coordinated packages`,
 after package acceptance and promotion, and also runs manually for a selected
 accepted release. It builds/tests the image, then publishes these tags:
 
-- `ghcr.io/enucatl/openvox-server:9.1.0-mldsa.13001` identifies upstream version and coordinated build.
+- `ghcr.io/enucatl/openvox-server:9.1.0-mldsa.18001` identifies upstream version and coordinated build.
 - `ghcr.io/enucatl/openvox-server:9.1.0` moves with promoted builds of that upstream version.
 - `ghcr.io/enucatl/openvox-server:latest` moves with the promoted package release.
 
-These examples use the accepted `resolute-13001` APT release; the OS codename
+These examples use the accepted `resolute-18001` APT release; the OS codename
 remains an archive identifier and does not appear in image tags. Rebuilding an
 older release leaves both moving aliases unchanged. Publication rejects
 draft, prerelease and unaccepted package releases. The release's
@@ -130,11 +136,11 @@ passed image build/lifecycle checks and published `9.1.0-mldsa.13001`, `9.1.0`
 and `latest`. Anonymous registry requests verified all three at digest
 `sha256:38a0923732977a0eae63305d2c53cb91b18321bf26142814ab916ff0524d300b`.
 Its [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-13001/server-image.json)
-records the exact package/build provenance. This verifies image delivery;
-the full new multi-target pipeline and live infrastructure rollout remain separate.
+records the historical package/build provenance. The full multi-target pipeline
+has now passed as recorded above; live infrastructure rollout remains separate.
 
 `tests/server-image.sh IMAGE` checks nonroot runtime/helper imports, explicit
-test-only RSA CA setup, verified HTTPS, foreground logging, graceful shutdown
+test-only RSA and ML-DSA CA setup, verified HTTPS, foreground logging, graceful shutdown
 and identity-preserving container recreation. It uses disposable volumes and
 does not contact production services. Full control-repo ML-DSA enrollment and
 Atlas recovery remain the open gates in issue #12/#18. Verify GHCR visibility
