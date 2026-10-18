@@ -5,20 +5,22 @@ require 'yaml'
 
 root = File.expand_path('..', __dir__)
 workflow = YAML.load_file("#{root}/.github/workflows/packages.yml")
-upload = workflow.fetch('jobs').fetch('publish').fetch('steps').find { |step| step['name'] == 'Retain acceptance diagnostics' }
+upload = workflow.fetch('jobs').fetch('acceptance').fetch('steps').find { |step| step['name'] == 'Retain acceptance diagnostics' }
 raise 'Diagnostics must upload after failure' unless upload.fetch('if') == 'always()'
 upload_paths = upload.fetch('with').fetch('path').lines.map(&:strip)
 raise 'Upload paths must name individual files' if upload_paths.any? { |path| path.match?(/[?*]/) || path.end_with?('/') }
 
 Dir.mktmpdir do |dir|
   FileUtils.mkdir_p(["#{dir}/bin", "#{dir}/scripts", "#{dir}/tests/acceptance", "#{dir}/sources/vault/lib", "#{dir}/container/test"])
-  FileUtils.cp(Dir["#{root}/scripts/acceptance*.sh"], "#{dir}/scripts")
+  FileUtils.cp(Dir["#{root}/scripts/acceptance*.sh"] + ["#{root}/scripts/target.sh"], "#{dir}/scripts")
+  FileUtils.cp_r("#{root}/apt", dir)
   File.write("#{dir}/key.asc", 'PUBLIC KEY')
   File.write("#{dir}/bin/docker", <<~'RUBY')
     #!/usr/bin/env ruby
     require 'fileutils'
     case ARGV.shift
     when 'build'
+      File.write(ENV.fetch('FIXTURE_DOCKER_ARGS'), ARGV.join("\n"))
       warn 'APT fixture: candidate repository unavailable'
       exit 42
     when 'cp'
@@ -27,9 +29,14 @@ Dir.mktmpdir do |dir|
     end
   RUBY
   FileUtils.chmod(0o755, "#{dir}/bin/docker")
-  env = { 'PATH' => "#{dir}/bin:#{ENV.fetch('PATH')}", 'FIXTURE_CONTAINER' => "#{dir}/container", 'AGENT_VERSION' => 'fixture', 'SERVER_VERSION' => 'fixture' }
-  output, status = Open3.capture2e(env, 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
-  raise "Build failure was hidden: #{output}" unless status.exitstatus == 42 && output.include?('build acceptance image and install packages') && output.include?('candidate repository unavailable')
+  env = { 'PATH' => "#{dir}/bin:#{ENV.fetch('PATH')}", 'FIXTURE_CONTAINER' => "#{dir}/container", 'FIXTURE_DOCKER_ARGS' => "#{dir}/docker-args", 'AGENT_VERSION' => 'fixture', 'SERVER_VERSION' => 'fixture' }
+  %w[ubuntu26.04 ubuntu24.04 debian13].each do |target|
+    output, status = Open3.capture2e(env.merge('TARGET' => target), 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
+    raise "Build failure was hidden: #{output}" unless status.exitstatus == 42 && output.include?('build acceptance image and install packages') && output.include?('candidate repository unavailable')
+    args = File.readlines("#{dir}/docker-args", chomp: true)
+    raise "Wrong upstream replacement fixture for #{target}" unless args.include?("UPSTREAM_RELEASE=openvox9-release-#{target}.deb") && args.include?("UPSTREAM_AGENT_VERSION=9.1.0-1+#{target}")
+    raise "Unpinned acceptance image for #{target}" unless args.any? { |arg| arg.start_with?("BASE_IMAGE=#{target.start_with?('ubuntu') ? 'ubuntu' : 'debian'}:") && arg.include?('@sha256:') }
+  end
   evidence = "#{dir}/evidence/acceptance"
   raise 'Build log was lost before a container existed' unless File.read("#{evidence}/build.log").include?('candidate repository unavailable')
   raise 'Host failure status was lost' unless File.read("#{evidence}/host-status.txt").include?('exit_code=42')

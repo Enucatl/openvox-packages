@@ -28,14 +28,58 @@ verified the full ML-DSA identity lifecycle.
 [Complete-flow evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/task12-verification.txt),
 [VM evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/ubuntu26-systemd-resolute-13001.txt).
 
+## Server deployment decision (18 October 2026)
+
+The server's production target is a custom Ubuntu 26.04 container in
+`puppet-control-repo`'s `infra` Compose stack (`docker/docker-compose.yml`),
+first on the existing `docker.home.arpa` host, then on Atlas. The authoritative
+[container readiness plan](https://github.com/Enucatl/puppet-control-repo/issues/12)
+covers implementation and acceptance; no container deployment is claimed here.
+Build the image from this repository's signed, promoted, exact server/agent
+package pair, retaining the forked SSL library and CA gem and explicit Java 25,
+BCJSSE and security settings. A stock upstream image is not accepted evidence
+for the custom forks. After existing package acceptance, build and test the
+server image, then publish it to `ghcr.io/enucatl/openvox-server`. Record the
+accepted image digest for deployment and recovery in `puppet-control-repo`.
+Image tags use the upstream version and build (`9.1.0-mldsa.13001`), a moving
+upstream-version alias (`9.1.0`), and moving `latest` for the promoted release.
+The reusable image workflow is the coordinated pipeline's final job; pipeline
+success requires image build, lifecycle checks and GHCR publication to pass.
+Signed APT remains native-agent delivery and the image's package source; GHCR
+becomes server delivery. The Ubuntu image recipe, lifecycle smoke test and
+downstream `Server image` publication workflow are implemented. Hosted GHCR
+publication and real control-repo integration/recovery remain open gates.
+
+The Ubuntu 26.04 container userland can run on the existing Docker host after
+container acceptance, independently of its host OS upgrade. Native Ubuntu 24.04
+and Debian/Proxmox agent compatibility remains a separate gate; do not install
+these Ubuntu 26.04 binaries on those hosts. Host-systemd checks remain package
+verification/reference rather than the production server deployment model.
+
 ## Publishing decision
 
 Use the public distribution repository
 `Enucatl/openvox-packages`. Publish one coordinated GitHub Release per successful
 build. Each release contains a complete, signed, flat APT repository for
-**Ubuntu 26.04 (resolute), initially amd64**. Include architecture-independent
-packages as produced by the build tools. Do not publish RPMs or other Ubuntu
-series in this first implementation.
+**Ubuntu 26.04 (resolute), Ubuntu 24.04 (noble) and Debian 13 (trixie), amd64**.
+Include architecture-independent server packages paired to each target's exact
+agent. No RPMs or additional architectures are built.
+
+Resolve the five source heads once. Run shared source suites and compile the
+server once, concurrently with three parallel native-agent builds. Reuse the
+server's compressed payload unchanged; repackage only its version and exact
+agent dependency. After those jobs pass, assemble per-target provenance, sign
+one flat archive, then run anonymous APT and installed RSA/ML-DSA/Vault acceptance
+in parallel on all three OSes. Promote only after all three pass.
+
+Clients must install the matching `apt/<target>.pref` file before using the
+shared archive. It allows `*+<target>` versions and assigns every other version
+of the two package names priority -1. This preserves the existing flat GitHub
+endpoint without adding repository hosting or per-OS GitHub repositories.
+The archive retains one previous matching pair per target. The first extension
+release can retain only the existing 26.04 pair; new targets have no predecessor.
+The manifest's `targets` map records each target's versions, runtime checks and
+hashes; legacy top-level version/runtime fields remain the 26.04 variant.
 
 Clients use this stable repository address:
 
@@ -45,8 +89,9 @@ https://github.com/Enucatl/openvox-packages/releases/latest/download/
 
 GitHub redirects each asset request to the release designated as latest.
 `apt update` reads its package index; `apt upgrade` selects newer package
-versions. No Pages deployment, PPA, GHCR registry or intranet APT server is needed
-for this proposed layout. GitHub supplies file hosting and redirects; our
+versions. No Pages deployment, PPA or intranet APT server is needed for this
+APT layout; GHCR is used separately for the planned server image. GitHub
+supplies file hosting and redirects; our
 workflow must generate the repository metadata and signatures.
 
 The repository exists; the APT URLs become usable only after a tested release.
@@ -359,12 +404,18 @@ On Ubuntu 26.04 amd64, inspect candidates before the first installation:
 sudo apt update
 apt-cache policy openvox-agent openvox-server
 
-# Every managed Ubuntu node:
+# Native Ubuntu 26.04 agent hosts:
 sudo apt install openvox-agent
 
-# Configuration server only:
+# Server image build / standalone package verification only:
 sudo apt install openvox-server
 ```
+
+For production, install the exact accepted server/agent pair during image build,
+not on the Docker host. Record its versioned release and manifest with the image;
+updating the host agent does not update the container. Rebuild and accept the
+image to advance its pair. See the container migration plan above for persistent
+state, mTLS on 8140, bootstrap, backup/restore and rollback gates.
 
 Keep Ubuntu's normal repositories. Review and disable conflicting old
 Puppet/OpenVox sources when switching to these packages, so a higher upstream
@@ -441,13 +492,20 @@ repository metadata valid for the intended update cadence; if we set
 - [x] Exercise package-installed OpenVox enrollment, catalogs, Vault, renewal,
       revocation and the RSA regression controls; do not substitute source overlays.
 - [x] Capture client setup in the distribution/control repo documentation.
+- [x] Implement the Ubuntu 26.04 image recipe and downstream publication workflow
+      with exact accepted packages, explicit runtime settings and provenance.
+- [x] Build the image from `resolute-13001` and verify nonroot Java 25, missing
+      identity rejection, RSA HTTPS, graceful stop and preserved CA/server keys
+      through container recreation. Full control-repo ML-DSA acceptance is separate.
+- [ ] Verify hosted publication to `ghcr.io/enucatl/openvox-server` and retain its
+      digest and matching package provenance for `infra` rollout/recovery.
 - [ ] Run the live canary before fleet expansion. Keep actual deployed versions
       as records, not source pins.
 
-Ubuntu 26.04-only publication does not supply packages for current Ubuntu 24.04
-or Debian/Proxmox nodes. The earlier all-existing-nodes-first migration sequence
-needs an explicit deployment path for those systems; do not install Ubuntu
-26.04 binaries on them as a substitute.
+The pipeline now includes native Ubuntu 24.04 and Debian 13/Proxmox agent builds.
+Their first hosted candidate must pass the same installed acceptance before
+promotion. This does not change fleet configuration or complete the canary;
+the server container's 26.04 userland remains independent of its host agent.
 
 The repository, signer and automatically promoted tested releases now exist. Fleet client
 configuration has not been changed; actual fleet canary/cutover remains separate.

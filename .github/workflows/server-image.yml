@@ -1,0 +1,39 @@
+name: Server image
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Accepted Ubuntu 26.04 package release (or latest)
+        required: true
+        default: latest
+  workflow_call:
+    inputs:
+      release:
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: server-image
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PACKAGE_RELEASE: ${{ inputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Log in to GHCR
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Verify publication guards
+        run: ruby tests/server-image-publication.rb
+      - name: Build, check and publish fork server image
+        run: bash scripts/server-image.sh "$PACKAGE_RELEASE" --push

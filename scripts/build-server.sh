@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/target.sh
+[[ $TARGET == ubuntu26.04 ]] || { echo 'Build the common server on ubuntu26.04, then repackage for other targets' >&2; exit 1; }
 : "${SERVER_VERSION:?full Debian version required}"
 : "${AGENT_VERSION:?full Debian version required}"
 root=$PWD

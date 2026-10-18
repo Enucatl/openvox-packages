@@ -9,13 +9,37 @@ concurrency:
   group: coordinated-packages
   cancel-in-progress: false
 jobs:
-  build:
+  resolve:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Resolve branches and prepare versions once
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/prepare.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: coordinated-inputs
+          path: |
+            dist/source-heads.tsv
+            dist/build-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+  source:
+    needs: resolve
     runs-on: ubuntu-26.04
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: coordinated-inputs
+          path: dist
       - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83
         with:
           ruby-version: '3.4'
@@ -26,69 +50,118 @@ jobs:
       - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74
         with:
           lein: latest
-      - name: Archive integrity self-check
+      - name: Check out the shared source snapshot
+        run: |
+          scripts/checkout-sources.sh openvox jvm-ssl-utils openvox-server openvoxserver-ca vault
+          ruby scripts/select-target.rb
+      - name: Verify archive integrity and recipes
         run: |
           sudo apt-get update
           sudo apt-get install -y apt-utils
           bash tests/archive.sh
-      - name: Resolve branches and prepare versions
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/prepare.sh
-      - name: Verify source recipes and Bundler isolation
-        run: |
+          bash tests/targets.sh
           ruby tests/server-recipe.rb
           ruby tests/source-recipe.rb
+          ruby tests/source-snapshot.rb
           ruby tests/bundler-env.rb
           ruby tests/build-manifest.rb
+          ruby tests/repackage-server.rb
+          ruby tests/release-manifest.rb
+          ruby tests/publication.rb
           ruby tests/acceptance-diagnostics.rb
       - name: Vault source tests
         run: scripts/test-vault.sh
+      - name: Compile and package the shared server once
+        run: scripts/build-server.sh
+      - name: Source tests once
+        run: scripts/source-tests.sh
+      - name: Record shared source and server checks
+        run: |
+          ruby -rjson -rdigest <<'RUBY_CHECKS'
+          packages = Dir['dist/openvox-server_*.deb']
+          abort 'Expected one shared server package' unless packages.size == 1
+          checks = {
+            'checks' => %w[source_tests vault_source_tests server_recipe server_package_tests].to_h { |name| [name, 'passed'] },
+            'java' => `java -version 2>&1`.strip,
+            'server' => File.basename(packages.first),
+            'server_sha256' => Digest::SHA256.file(packages.first).hexdigest
+          }
+          File.write('dist/source-checks.json', JSON.pretty_generate(checks) + "\n")
+          RUBY_CHECKS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: shared-server
+          path: |
+            dist/openvox-server_*.deb
+            dist/source-checks.json
+          if-no-files-found: error
+          retention-days: 14
+  build:
+    needs: resolve
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ubuntu26.04, ubuntu24.04, debian13]
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: coordinated-inputs
+          path: dist
+      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83
+        with:
+          ruby-version: '3.4'
+      - name: Check out and version the target agent
+        run: |
+          scripts/checkout-sources.sh openvox
+          ruby scripts/select-target.rb
       - name: Build agent
         run: scripts/build-agent.sh
       - name: Test built agent
         run: scripts/test-agent.sh
-      - name: Build server
-        run: scripts/build-server.sh
-      - name: Source tests
-        run: scripts/source-tests.sh
       - name: Record successful build checks
         run: |
-          ruby -rjson -rdigest <<'RUBY'
-          manifest_path = 'dist/build-manifest.json'
+          ruby -rjson -rdigest <<'RUBY_CHECKS'
+          manifest_path = "dist/build-manifest-#{ENV.fetch('TARGET')}.json"
           manifest = JSON.parse(File.read(manifest_path))
           agent_log = 'dist/agent-test.log'
           agent_crypto = File.file?(agent_log) && File.readlines(agent_log).find { |line| line.start_with?('Ruby ') }
           abort 'Missing installed agent runtime report' unless agent_crypto
 
-          manifest['checks'] = {
-            'source_tests' => 'passed',
-            'vault_source_tests' => 'passed',
-            'agent_package_tests' => 'passed',
-            'server_recipe' => 'passed'
-          }
+          manifest['checks'] = { 'agent_package_tests' => 'passed' }
           manifest['runtime_inputs'] = {
             'agent_runtime' => JSON.parse(File.read('sources/openvox/packaging/configs/components/puppet-runtime.json')),
-            'agent_crypto' => agent_crypto.strip,
-            'java' => `java -version 2>&1`.strip
+            'agent_crypto' => agent_crypto.strip
           }
           manifest['sha256'] = Dir['dist/*.deb'].to_h do |package_path|
             [File.basename(package_path), Digest::SHA256.file(package_path).hexdigest]
           end
           File.write(manifest_path, JSON.pretty_generate(manifest) + "\n")
-          RUBY
+          RUBY_CHECKS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: packages
-          path: dist/
+          name: packages-${{ matrix.target }}
+          path: |
+            dist/openvox-agent_*.deb
+            dist/build-manifest-${{ matrix.target }}.json
+            dist/agent-test.log
           if-no-files-found: error
           retention-days: 14
   publish:
-    needs: build
+    needs: [source, build]
     runs-on: ubuntu-26.04
-    timeout-minutes: 90
+    timeout-minutes: 20
     permissions:
       contents: write
+    outputs:
+      candidate_tag: ${{ steps.candidate.outputs.tag }}
+      candidate_url: ${{ steps.candidate.outputs.url }}
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -98,15 +171,23 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          name: packages
+          name: coordinated-inputs
           path: dist
-      - name: Restore build identity and tested Vault module
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: shared-server
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: dist
+      - name: Reuse server payload and assemble coordinated evidence
         run: |
-          jq -r '"BUILD_NUMBER="+.build, "AGENT_VERSION="+.sources.openvox.package_version, "SERVER_VERSION="+.sources["openvox-server"].package_version' dist/build-manifest.json >> "$GITHUB_ENV"
-          sha=$(jq -r '.sources.vault.sha' dist/build-manifest.json)
-          git clone --no-checkout https://github.com/Enucatl/vault.git sources/vault
-          git -C sources/vault checkout --detach "$sha"
+          ruby scripts/assemble-release.rb
+          ruby scripts/select-target.rb
       - name: Sign and publish candidate
+        id: candidate
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
           APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
@@ -121,13 +202,47 @@ jobs:
           trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
           printf '%s' "$APT_SIGNING_KEY" | gpg --batch --import
           scripts/publish.sh
+  acceptance:
+    needs: publish
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ubuntu26.04, ubuntu24.04, debian13]
+    env:
+      TARGET: ${{ matrix.target }}
+      CANDIDATE_URL: ${{ needs.publish.outputs.candidate_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Restore candidate identity and tested Vault module
+        run: |
+          curl -fsSLo /tmp/build-manifest.json "${CANDIDATE_URL}build-manifest.json"
+          ruby -rjson <<'RUBY_IDENTITY'
+          manifest = JSON.parse(File.read('/tmp/build-manifest.json'))
+          target = manifest.fetch('targets').fetch(ENV.fetch('TARGET'))
+          File.open(ENV.fetch('GITHUB_ENV'), 'a') do |file|
+            file.puts "AGENT_VERSION=#{target.fetch('sources').fetch('openvox').fetch('package_version')}"
+            file.puts "SERVER_VERSION=#{target.fetch('sources').fetch('openvox-server').fetch('package_version')}"
+            previous = manifest.fetch('previous', {})[ENV.fetch('TARGET')]
+            if previous
+              file.puts "PREVIOUS_AGENT=#{previous.fetch('agent')}"
+              file.puts "PREVIOUS_SERVER=#{previous.fetch('server')}"
+            end
+          end
+          RUBY_IDENTITY
+          sha=$(jq -r '.sources.vault.sha' /tmp/build-manifest.json)
+          git clone --no-checkout https://github.com/Enucatl/vault.git sources/vault
+          git -C sources/vault checkout --detach "$sha"
       - name: Anonymous APT and installed-package acceptance
         run: scripts/acceptance.sh "$CANDIDATE_URL" openvox-archive-keyring.asc "${PREVIOUS_AGENT:-}" "${PREVIOUS_SERVER:-}"
       - name: Retain acceptance diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
-          name: acceptance-diagnostics
+          name: acceptance-diagnostics-${{ matrix.target }}
           path: |
             evidence/acceptance/host-status.txt
             evidence/acceptance/build.log
@@ -163,7 +278,29 @@ jobs:
             evidence/acceptance/package-puppetserver-daemon.log
           if-no-files-found: warn
           retention-days: 14
-      - name: Promote tested candidate
+  promote:
+    needs: [publish, acceptance]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CANDIDATE_TAG: ${{ needs.publish.outputs.candidate_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Promote only after all three targets pass
         run: |
           printf '\nAcceptance: passed\n' >> RELEASE-NOTES.md
           gh release edit "$CANDIDATE_TAG" --latest --notes-file RELEASE-NOTES.md
+  server_image:
+    needs: [publish, promote]
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/server-image.yml
+    with:
+      release: ${{ needs.publish.outputs.candidate_tag }}

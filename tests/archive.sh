@@ -28,6 +28,25 @@ Description: Disposable APT signature and checksum test
 CONTROL
 printf 'archive test payload\n' > "$work/package/payload"
 dpkg-deb --build "$work/package" "$work/dist/selfcheck.deb" >/dev/null
+mkdir -p "$work/target-package/DEBIAN"
+for target in ubuntu26.04 ubuntu24.04 debian13; do
+  for build in 1 2; do
+    version="9.0.0-$build+$target"
+    for kind in agent server; do
+      cat > "$work/target-package/DEBIAN/control" <<CONTROL
+Package: openvox-$kind
+Version: $version
+Architecture: all
+Maintainer: Selfcheck <nobody@example.invalid>
+Description: Disposable APT target-selection test
+CONTROL
+      if [[ $kind == server ]]; then
+        printf 'Depends: openvox-agent (= %s)\n' "$version" >> "$work/target-package/DEBIAN/control"
+      fi
+      dpkg-deb --build "$work/target-package" "$work/dist/openvox-${kind}_${version}_all.deb" >/dev/null
+    done
+  done
+done
 printf '{}\n' > "$work/dist/build-manifest.json"
 bash "$work/scripts/archive.sh"
 gpg --armor --export "$APT_PRIMARY_FINGERPRINT" > "$work/key.asc"
@@ -41,6 +60,8 @@ apt_options=(
   -o "Dir::Cache=$work/apt/cache"
   -o "Dir::Etc::trusted=$work/apt/no-trusted.gpg"
   -o "Dir::Etc::trustedparts=$work/apt/parts"
+  -o "Dir::Etc::preferences=$work/apt/preferences"
+  -o "Dir::Etc::preferencesparts=$work/apt/parts"
   -o "APT::Sandbox::User=$(id -un)"
   -o APT::Update::Error-Mode=any
 )
@@ -58,6 +79,30 @@ reject_update() {
   printf 'PASS: rejected %s\n' "$1"
 }
 update
+for kind in agent server; do
+  apt-cache "${apt_options[@]}" policy "openvox-$kind" > "$work/policy"
+  grep -q 'Candidate: 9.0.0-2+ubuntu26.04' "$work/policy"
+done
+printf 'PASS: existing unpinned clients select Ubuntu 26.04\n'
+for target in ubuntu26.04 ubuntu24.04 debian13; do
+  cp "$root/apt/$target.pref" "$work/apt/preferences"
+  for kind in agent server; do
+    apt-cache "${apt_options[@]}" policy "openvox-$kind" > "$work/policy"
+    grep -q "Candidate: 9.0.0-2+$target" "$work/policy"
+    for other in ubuntu26.04 ubuntu24.04 debian13; do
+      if [[ $other == "$target" ]]; then priority=990; else priority=-1; fi
+      for build in 1 2; do
+        grep -Fq "9.0.0-$build+$other $priority" "$work/policy"
+      done
+    done
+  done
+  mkdir "$work/download/$target"
+  (cd "$work/download/$target" && apt-get "${apt_options[@]}" download openvox-agent openvox-server)
+  for kind in agent server; do
+    [[ $(dpkg-deb -f "$work/download/$target/openvox-${kind}_9.0.0-2+${target}_all.deb" Version) == "9.0.0-2+$target" ]]
+  done
+  printf 'PASS: %s selects and downloads its pair, excluding other targets\n' "$target"
+done
 (cd "$work/download" && apt-get "${apt_options[@]}" download openvox-archive-selfcheck=1.0)
 printf 'PASS: verified signed archive and downloaded package\n'
 cp -R "$work/dist" "$work/original"

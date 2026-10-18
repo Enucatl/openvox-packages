@@ -1,0 +1,7 @@
+Package: openvox-agent openvox-server
+Pin: version *+debian13
+Pin-Priority: 990
+
+Package: openvox-agent openvox-server
+Pin: version *
+Pin-Priority: -1

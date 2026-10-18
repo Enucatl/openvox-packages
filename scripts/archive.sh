@@ -11,7 +11,7 @@ trap 'rm -f "$metadata"' EXIT
 apt-ftparchive -o APT::FTPArchive::Release::Origin=OpenVox-Homelab \
   -o APT::FTPArchive::Release::Label=OpenVox-Homelab \
   -o APT::FTPArchive::Release::Architectures='amd64 all' \
-  -o APT::FTPArchive::Release::Description='ML-DSA OpenVox for Ubuntu 26.04' release . > "$metadata"
+  -o APT::FTPArchive::Release::Description='ML-DSA OpenVox for Ubuntu 26.04, Ubuntu 24.04 and Debian 13' release . > "$metadata"
 mv "$metadata" Release
 for mode in clearsign detach-sign; do
   if [[ $mode == clearsign ]]; then output=InRelease; else output=Release.gpg; fi

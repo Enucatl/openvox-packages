@@ -18,7 +18,10 @@ Dir.mktmpdir do |root|
       FileUtils.cp("#{sources}/#{path}", "#{root}/#{path}")
     end
   end
-  [[], [server_version, agent_version]].each do |versions|
+  versions_by_target = %w[ubuntu26.04 ubuntu24.04 debian13].map do |target|
+    [server_version.sub('ubuntu26.04', target), agent_version.sub('ubuntu26.04', target)]
+  end
+  [[], *versions_by_target].each do |versions|
     reset.call
     _, error, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
     raise error unless status.success?
@@ -29,7 +32,7 @@ Dir.mktmpdir do |root|
     unless versions.empty?
       raise 'Wrong server Maven version' unless project.include?("(defproject org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"")
       raise 'Wrong EZbake self dependency' unless project.scan("[org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"]").size == 2
-      raise 'Wrong agent dependency' unless File.read("#{root}/openvox-server/resources/ext/ezbake.conf").include?("openvox-agent (= #{agent_version})")
+      raise 'Wrong agent dependency' unless File.read("#{root}/openvox-server/resources/ext/ezbake.conf").include?("openvox-agent (= #{versions[1]})")
     end
     _, error, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
     raise 'Accepted an already modified project' if status.success?
@@ -43,7 +46,10 @@ Dir.mktmpdir do |root|
   _, error, status = Open3.capture3(RbConfig.ruby, configure, root, server_version, agent_version)
   raise "Release source versions failed: #{error}" unless status.success?
 
-  [[server_version, agent_version.sub('.42-', '.43-')], ['bad', agent_version], [server_version]].each do |versions|
+  [[server_version, agent_version.sub('.42-', '.43-')],
+   [server_version, agent_version.sub('ubuntu26.04', 'debian13')],
+   [server_version.sub('ubuntu26.04', 'debian12'), agent_version.sub('ubuntu26.04', 'debian12')],
+   ['bad', agent_version], [server_version]].each do |versions|
     reset.call
     before = paths.map { |path| File.read("#{root}/#{path}") }
     _, _, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)

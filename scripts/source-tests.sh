@@ -3,6 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
 export BUNDLE_PATH=${BUNDLE_PATH:-${RUNNER_TEMP:-/tmp}/openvox-packages-bundle}
+cd sources/openvox
+bundle install --jobs 4
+bundle exec rake parallel:spec
+cd "$root"
 # Maven must never replace the tested fork with a remote SNAPSHOT of the same name.
 ruby scripts/configure-build.rb "$root/sources"
 cd sources/jvm-ssl-utils

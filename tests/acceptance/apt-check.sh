@@ -5,6 +5,21 @@ server=$(dpkg-query -W -f='${Version}' openvox-server)
 [[ $agent == "${AGENT_VERSION:?Expected agent version required}" ]]
 [[ $server == "${SERVER_VERSION:?Expected server version required}" ]]
 dpkg-query -W -f='${Depends}' openvox-server | grep -F "openvox-agent (= $agent)"
+: "${TARGET:?Expected package target required}"
+for package in openvox-agent openvox-server; do
+  policy=$(apt-cache policy "$package")
+  expected=$agent
+  [[ $package != openvox-server ]] || expected=$server
+  [[ $policy == *"Candidate: $expected"$'\n'* ]]
+  while read -r version priority rest; do
+    if [[ $version == '***' ]]; then version=$priority; priority=$rest; fi
+    [[ $version != *"+$TARGET" ]] || continue
+    case $version in
+      *+ubuntu26.04|*+ubuntu24.04|*+debian13)
+        [[ $priority == -1 ]] || { echo "Wrong distribution is selectable: $package $version ($priority)" >&2; exit 1; } ;;
+    esac
+  done <<< "$policy"
+done
 # Reject unsigned metadata rather than accidentally accepting cached indexes.
 mv /usr/share/keyrings/openvox-homelab.asc /tmp/archive-key.asc
 rm -rf /var/lib/apt/lists/*

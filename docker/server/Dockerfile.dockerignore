@@ -1,0 +1,10 @@
+**
+!docker/
+!docker/server/
+!docker/server/Dockerfile
+!docker/server/pyproject.toml
+!docker/server/uv.lock
+!docker/server/entrypoint.sh
+!openvox-archive-keyring.asc
+!dist/
+!dist/build-manifest.json
