@@ -50,7 +50,7 @@ lein gem install --local --ignore-dependencies --no-document "$root/sources/open
 lein test :singlethreaded
 lein test :multithreaded
 # The rake task configures the embedded JRuby and its own Bundler, independently of MRI.
-BUNDLE_GEMFILE=$PWD/Gemfile bundle exec rake spec
+BUNDLE_GEMFILE=$PWD/Gemfile bundle exec ruby -rrake -e 'Bundler.with_unbundled_env { Rake.application.run(["spec"]) }'
 cd "$root/sources/vault"
 BUNDLE_GEMFILE=$PWD/Gemfile BUNDLE_WITHOUT=system_tests:release_prep bundle install
 # shellcheck disable=SC2016

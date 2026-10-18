@@ -39,14 +39,15 @@ jobs:
         run: |
           ruby tests/server-recipe.rb
           ruby tests/source-recipe.rb
-      - name: Source tests
-        run: scripts/source-tests.sh
+          ruby tests/bundler-env.rb
       - name: Build agent
         run: scripts/build-agent.sh
       - name: Test built agent
         run: scripts/test-agent.sh
       - name: Build server
         run: scripts/build-server.sh
+      - name: Source tests
+        run: scripts/source-tests.sh
       - name: Record successful build checks
         run: |
           # shellcheck disable=SC2016
