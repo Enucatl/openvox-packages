@@ -497,8 +497,11 @@ repository metadata valid for the intended update cadence; if we set
 - [x] Build the image from `resolute-13001` and verify nonroot Java 25, missing
       identity rejection, RSA HTTPS, graceful stop and preserved CA/server keys
       through container recreation. Full control-repo ML-DSA acceptance is separate.
-- [ ] Verify hosted publication to `ghcr.io/enucatl/openvox-server` and retain its
-      digest and matching package provenance for `infra` rollout/recovery.
+- [x] Verify [hosted publication](https://github.com/Enucatl/openvox-packages/actions/runs/39153344363)
+      to `ghcr.io/enucatl/openvox-server`: `9.1.0-mldsa.13001`, `9.1.0` and
+      `latest` are anonymously readable at digest
+      `sha256:38a0923732977a0eae63305d2c53cb91b18321bf26142814ab916ff0524d300b`.
+      Retain the release's `server-image.json` provenance for `infra` recovery.
 - [ ] Run the live canary before fleet expansion. Keep actual deployed versions
       as records, not source pins.
 

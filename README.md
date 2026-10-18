@@ -122,6 +122,14 @@ gems. Normal startup rejects missing CA/server keys and certificates. Explicit
 `puppetserver ca setup` or the rehearsed external-CA import remains an operator
 action, using the same mounts and `/etc/puppetlabs/puppet/puppet.conf`.
 
+The [first hosted image publication](https://github.com/Enucatl/openvox-packages/actions/runs/39153344363)
+passed image build/lifecycle checks and published `9.1.0-mldsa.13001`, `9.1.0`
+and `latest`. Anonymous registry requests verified all three at digest
+`sha256:38a0923732977a0eae63305d2c53cb91b18321bf26142814ab916ff0524d300b`.
+Its [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-13001/server-image.json)
+records the exact package/build provenance. This verifies image delivery;
+the full new multi-target pipeline and live infrastructure rollout remain separate.
+
 `tests/server-image.sh IMAGE` checks nonroot runtime/helper imports, explicit
 test-only RSA CA setup, verified HTTPS, foreground logging, graceful shutdown
 and identity-preserving container recreation. It uses disposable volumes and
