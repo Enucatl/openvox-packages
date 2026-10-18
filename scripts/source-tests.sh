@@ -17,10 +17,7 @@ text = server.read
 needle = "[org.openvoxproject/ssl-utils \"#{old}\"]"
 raise 'SSL dependency changed' unless text.include?(needle)
 server.write(text.gsub(needle, "[org.openvoxproject/ssl-utils \"#{local}\"]"))
-vault = root / 'vault/Gemfile'
-text = vault.read
-raise 'Vault Puppet dependency changed' unless text.include?("gems['puppet'] = location_for(puppet_version)")
-vault.write(text.sub("gems['puppet'] = location_for(puppet_version)", "gems['openvox'] = location_for(#{('file://' + (root / 'openvox').to_s).dump})"))
+
 RUBY
 cd sources/jvm-ssl-utils
 lein test
@@ -51,8 +48,3 @@ lein test :singlethreaded
 lein test :multithreaded
 # The rake task configures the embedded JRuby and its own Bundler, independently of MRI.
 BUNDLE_GEMFILE=$PWD/Gemfile bundle exec ruby -rrake -e 'Bundler.with_unbundled_env { Rake.application.run(["spec"]) }'
-cd "$root/sources/vault"
-BUNDLE_GEMFILE=$PWD/Gemfile BUNDLE_WITHOUT=system_tests:release_prep bundle install
-# shellcheck disable=SC2016
-BUNDLE_GEMFILE=$PWD/Gemfile BUNDLE_WITHOUT=system_tests:release_prep bundle exec ruby -e 'require "puppet"; abort "Wrong Puppet source" unless $LOADED_FEATURES.any? { |path| path.include?("/sources/openvox/lib/puppet.rb") }'
-BUNDLE_GEMFILE=$PWD/Gemfile BUNDLE_WITHOUT=system_tests:release_prep bundle exec rake spec

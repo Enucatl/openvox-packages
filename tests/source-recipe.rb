@@ -10,21 +10,23 @@ Dir.mktmpdir do |root|
   %w[jvm-ssl-utils openvox-server].each do |repo|
     FileUtils.cp("#{sources}/#{repo}/project.clj", "#{root}/#{repo}/project.clj")
   end
-  vault = File.exist?("#{sources}/vault/Gemfile") ? 'vault' : 'vault-hiera'
-  FileUtils.cp("#{sources}/#{vault}/Gemfile", "#{root}/vault/Gemfile")
   ARGV.replace([root])
   eval(rewrite, binding, 'source-tests.sh recipe')
   raise 'Wrong local SSL dependency' unless File.read("#{root}/openvox-server/project.clj").include?("[org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.source\"]")
   raise 'Wrong local SSL artifact' unless File.read("#{root}/jvm-ssl-utils/project.clj").include?("#{ssl_version}-homelab.source")
-  gemfile = File.read("#{root}/vault/Gemfile")
-  raise 'Wrong gem name' unless gemfile.include?("gems['openvox'] = location_for(")
-  raise 'Wrong local gem path' unless gemfile.include?("file://#{root}/openvox")
-  raise 'Invalid Vault Gemfile' unless system('ruby', '-c', "#{root}/vault/Gemfile")
-  begin
-    eval(rewrite, binding, 'source-tests.sh recipe')
-    raise 'Unexpectedly accepted changed inputs'
-  rescue RuntimeError => error
-    raise unless error.message == 'Vault Puppet dependency changed'
+
+  vault_script = File.read(File.expand_path('../scripts/test-vault.sh', __dir__))
+  gemfile_recipe = vault_script.scan(/<<'RUBY'\n(.*?)\nRUBY/m).last.first
+  ARGV.replace(["#{root}/openvox"])
+  Dir.chdir("#{root}/vault") do
+    File.write('Gemfile', 'original developer bundle')
+    eval(gemfile_recipe, binding, 'test-vault.sh recipe')
+    gemfile = File.read('Gemfile.packages')
+    raise 'Wrong local gem' unless gemfile.include?("gem 'openvox', path: \"#{root}/openvox\"")
+    raise 'Wrong helper' unless gemfile.include?("path: '.package-test-gems/puppetlabs_spec_helper-8.0.0'")
+    raise 'Legacy facts helper' unless gemfile.include?("gem 'rspec-puppet-facts', '~> 6.3'")
+    raise 'Developer bundle changed' unless File.read('Gemfile') == 'original developer bundle'
+    raise 'Invalid test Gemfile' unless system('ruby', '-c', 'Gemfile.packages')
   end
 end
 puts 'Source recipe checks passed'

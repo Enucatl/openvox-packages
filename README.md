@@ -80,3 +80,8 @@ paired upgrade/rollback when a previous release exists, and installed-package
 RSA/ML-DSA enrollment, catalogs, renewal, revocation and Vault integration.
 Acceptance evidence includes disposable private identities; it is never uploaded
 as public release assets. Ubuntu 24.04 and Debian/Proxmox are outside this build.
+
+Vault source tests run early with a generated test bundle against the local
+OpenVox fork. Its official helper 8.0.0 uses a workspace-only dependency override
+for current syntax tooling, alongside facts helper 6.3. Remove that override when
+the upstream helper supports the OpenVox syntax dependency directly.

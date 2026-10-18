@@ -1,8 +1,10 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: implementation in progress, 18 October 2026. The source POC passed.
-`Enucatl/openvox-packages` and its dedicated archive signing key now exist;
-installable fork packages and the GitHub-hosted APT path are not yet validated.
+Status: implementation in progress, 18 October 2026. Both Debian packages build;
+an installed-package preflight passed all 87 RSA/ML-DSA/Vault lifecycle assertions
+on Ubuntu 26.04. All five cross-repository push dispatchers pass. The archive
+signer passes Ubuntu 26.04 APT verification. Vault source-test tooling and the
+public GitHub-hosted APT release path are still being validated.
 
 ## Publishing decision
 
@@ -378,11 +380,11 @@ repository metadata valid for the intended update cadence; if we set
 
 ## Implementation checklist
 
-- [ ] Create `Enucatl/openvox-packages` and its coordinated build workflow.
-- [ ] Create a new, dedicated OpenPGP archive-signing key with an Ed25519 signing
-      subkey. Keep the primary key offline, publish the public key/fingerprint,
-      secure the private-key/revocation backup, and configure the CI signer.
-- [ ] Adapt Vanagon/EZbake and the CA gem input to build only Ubuntu 26.04
+- [x] Create `Enucatl/openvox-packages` and its coordinated build workflow.
+- [x] Create a new, dedicated OpenPGP archive-signing key with an Ed25519 signing
+      subkey, publish the public key/fingerprint and configure the CI signer.
+- [ ] Move the local primary-key/revocation backup to independent offline storage.
+- [x] Adapt Vanagon/EZbake and the CA gem input to build only Ubuntu 26.04
       artifacts from the current fork branches, with generated package versions,
       an increasing build counter and the server's exact tested-agent dependency.
 - [ ] Record source/runtime provenance and build the complete flat asset set.
@@ -397,7 +399,7 @@ repository metadata valid for the intended update cadence; if we set
       of the complete retained pair.
 - [ ] Verify failures for an untrusted key, modified package, modified index,
       missing signature and metadata mixing during a latest-release switch.
-- [ ] Exercise package-installed OpenVox enrollment, catalogs, Vault, renewal,
+- [x] Exercise package-installed OpenVox enrollment, catalogs, Vault, renewal,
       revocation and the RSA regression controls; do not substitute source overlays.
 - [ ] Capture client setup in the control repo and run the live canary before
       fleet expansion. Keep actual deployed versions as records, not source pins.
