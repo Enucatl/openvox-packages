@@ -12,6 +12,9 @@ for target in ubuntu26.04 debian13; do
   '
   awk '/Pin-Priority:/ && $2 > 500 {exit 1}' "apt/native-client-$target.pref"
   grep -F "Pin: version *+$target" "apt/native-client-$target.pref" >/dev/null
+  foreign=ubuntu26.04
+  if [[ $target == ubuntu26.04 ]]; then foreign=debian13; fi
+  grep -F "Pin: version *+$foreign" "apt/native-client-$target.pref" >/dev/null
 done
 if TARGET=ubuntu24.04 bash -c 'source scripts/native-client-target.sh' >/dev/null 2>&1; then
   echo 'Unsupported native target unexpectedly accepted' >&2

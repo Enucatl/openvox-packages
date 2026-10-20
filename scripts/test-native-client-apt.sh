@@ -25,7 +25,10 @@ apt-get update -o APT::Update::Error-Mode=any
 for package in curl libcurl4t64 python3-ipalib; do
   expected=$CURL_VERSION
   if [[ $package == python3-ipalib ]]; then expected=$IPALIB_VERSION; fi
-  test "$(apt-cache policy "$package" | awk '/Candidate:/ {print $2}')" = "$expected"
+  policy=$(apt-cache policy "$package")
+  printf '%s\n' "$policy"
+  test "$(awk '/Candidate:/ {print $2}' <<< "$policy")" = "$expected"
+  grep -E -- '\+homelab\.1\+[^ ]+ -1$' <<< "$policy" >/dev/null
 done
 apt-get install -y --no-install-recommends \
   "curl=$CURL_VERSION" "libcurl4t64=$CURL_VERSION" "python3-ipalib=$IPALIB_VERSION" openssl

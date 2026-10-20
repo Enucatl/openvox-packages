@@ -3,5 +3,5 @@ Pin: version *+ubuntu26.04
 Pin-Priority: 500
 
 Package: curl libcurl4t64 python3-ipalib
-Pin: version *+homelab.*
+Pin: version *+debian13
 Pin-Priority: -1
