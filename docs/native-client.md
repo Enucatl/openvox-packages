@@ -1,5 +1,12 @@
 # Native FreeIPA client ML-DSA prerequisites
 
+Accepted companion release: [native-client-2-1](https://github.com/Enucatl/openvox-packages/releases/tag/native-client-2-1).
+The [successful workflow](https://github.com/Enucatl/openvox-packages/actions/runs/39372604533)
+built and checked both native targets, then verified fresh signed-APT installation
+before publication. The [manifest](https://github.com/Enucatl/openvox-packages/releases/download/native-client-2-1/native-client-manifest.json)
+records the six exact packages and their checksums. The OpenVox latest release
+remains `resolute-24001`.
+
 The native FreeIPA client needs two compatibility fixes before Puppet installs
 and enrolls it against the CA-less ML-DSA FreeIPA server:
 
