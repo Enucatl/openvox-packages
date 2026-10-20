@@ -20,4 +20,4 @@ for mode in clearsign detach-sign; do
 done
 gpg --verify InRelease
 gpg --verify Release.gpg Release
-sha256sum ./*.deb Packages Packages.gz Release InRelease Release.gpg build-manifest.json > SHA256SUMS
+sha256sum ./*.deb Packages Packages.gz Release InRelease Release.gpg "${ARCHIVE_MANIFEST:-build-manifest.json}" > SHA256SUMS

@@ -3,6 +3,14 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docker/curl/**'
+      - 'docker/freeipa-client/**'
+      - 'scripts/*native-client*'
+      - 'apt/native-client-*'
+      - '.github/workflows/native-client.yml'
+      - 'tests/native-client*'
+      - 'docs/native-client*'
 permissions:
   contents: read
 concurrency:

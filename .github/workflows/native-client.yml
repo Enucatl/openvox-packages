@@ -1,0 +1,72 @@
+name: Native FreeIPA client prerequisites
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docker/curl/**'
+      - 'docker/freeipa-client/**'
+      - 'scripts/*native-client*'
+      - 'scripts/archive.sh'
+      - 'apt/native-client-*'
+      - '.github/workflows/native-client.yml'
+permissions:
+  contents: read
+concurrency:
+  group: native-client-packages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ubuntu26.04, debian13]
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: bash tests/native-client.sh
+      - run: scripts/build-native-client.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: native-client-${{ matrix.target }}
+          path: |
+            dist/*.deb
+            dist/native-client-${{ matrix.target }}.json
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          pattern: native-client-*
+          merge-multiple: true
+          path: dist
+      - name: Sign and publish verified prerequisites
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          APT_SIGNING_PASSPHRASE: ${{ secrets.APT_SIGNING_PASSPHRASE }}
+          APT_PRIMARY_FINGERPRINT: ${{ vars.APT_PRIMARY_FINGERPRINT }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils
+          export GNUPGHOME
+          GNUPGHOME=$(mktemp -d)
+          chmod 700 "$GNUPGHOME"
+          trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$APT_SIGNING_KEY" | gpg --batch --import
+          scripts/publish-native-client.sh

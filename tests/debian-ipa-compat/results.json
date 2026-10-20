@@ -1,0 +1,34 @@
+{
+  "checked_at": "2026-10-20",
+  "platform": "debian:13 amd64",
+  "base_image": "debian:13@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5",
+  "packages": {
+    "curl": "8.14.1-2+deb13u7",
+    "libcurl4t64": "8.14.1-2+deb13u7",
+    "freeipa-client": "4.12.4-1",
+    "python3-ipalib": "4.12.4-1",
+    "python3-cryptography": "43.0.0-3+deb13u1",
+    "openssl": "3.5.7"
+  },
+  "source_authentication": "apt-get update and apt-get install using the base image's Debian archive keyring and signed trixie/trixie-security repositories",
+  "curl_stock": {
+    "result": "failed as expected",
+    "test": "docker/curl/check.py ML-DSA-44 trusted localhost HTTPS Negotiate challenge, no Kerberos credentials",
+    "exit_code": 91,
+    "error": "Could not find digest algorithm UNDEF (NID 0)",
+    "backend": "OpenSSL 3.5.7; ipa-join links libcurl.so.4, provided by libcurl4t64"
+  },
+  "ipalib_stock": {
+    "result": "failed as expected",
+    "test": "docker/freeipa-client/check.py ML-DSA-44 SubjectPublicKeyInfo extraction",
+    "error": "ValueError: Unknown key type: 2.16.840.1.101.3.4.3.17"
+  },
+  "ipalib_source_patch": {
+    "result": "passed",
+    "patch": "docker/freeipa-client/public-key-info.patch",
+    "application": "patch --batch --fuzz=0 -p1, second hunk offset -4 lines",
+    "checks": ["ML-DSA-44 SPKI matches independent OpenSSL DER", "RSA-2048 SPKI matches independent OpenSSL DER", "ECDSA P-256 SPKI matches independent OpenSSL DER"]
+  },
+  "conclusion": "Both backports are needed for current Debian 13 packages. Installing libcurl's GnuTLS variant alone would not fix ipa-join, which requires the OpenSSL variant.",
+  "limitations": ["This evidence uses disposable containers and generated test identities; it does not enroll a Debian host or exercise a real Kerberos identity.", "Final patched .deb checks are performed by the package build's Dockerfile acceptance checks."]
+}
