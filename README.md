@@ -1,5 +1,8 @@
 # ML-DSA OpenVox packages
 
+Native FreeIPA client ML-DSA compatibility packages for Ubuntu 26.04 and Debian 13
+are built and published separately; see [native client prerequisites](docs/native-client.md).
+
 Coordinated fork packages targeting Ubuntu 26.04, Ubuntu 24.04 and Debian 13 amd64.
 Release `resolute-18001` passed the complete coordinated pipeline: shared source
 suites, native builds and signed APT/installed RSA/ML-DSA/Vault acceptance on

@@ -8,6 +8,9 @@ on:
       - 'docker/freeipa-client/**'
       - 'scripts/*native-client*'
       - 'scripts/archive.sh'
+      - 'scripts/target.sh'
+      - 'tests/native-client.sh'
+      - 'openvox-archive-keyring.asc'
       - 'apt/native-client-*'
       - '.github/workflows/native-client.yml'
 permissions:
