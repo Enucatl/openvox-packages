@@ -4,33 +4,32 @@ Native FreeIPA client ML-DSA compatibility packages for Ubuntu 26.04 and Debian 
 are built and published separately; see [native client prerequisites](docs/native-client.md).
 
 Coordinated fork packages targeting Ubuntu 26.04, Ubuntu 24.04 and Debian 13 amd64.
-Release `resolute-18001` passed the complete coordinated pipeline: shared source
-suites, native builds and signed APT/installed RSA/ML-DSA/Vault acceptance on
-all three targets, automatic promotion and the final GHCR image stage.
-[Successful run](https://github.com/Enucatl/openvox-packages/actions/runs/39154755798)
-tested coordinator `4f719cb678cc06a6f8c57a2e4a6a6915b84413c9`; its
-[package manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/build-manifest.json)
-records the resolved fork revisions and per-target inputs/results.
-The public image tags `9.1.0-mldsa.18001`, `9.1.0` and `latest` all resolve to
-`sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
-The [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/server-image.json)
-records their provenance. Image checks passed with default RSA and explicitly
-generated ML-DSA identities, verified HTTPS, shutdown and identity reuse.
-Fleet rollout and PKI migration remain separate operator work.
+The accepted migration baseline is
+[`resolute-24001`](https://github.com/Enucatl/openvox-packages/releases/tag/resolute-24001),
+with package acceptance recorded as passed. Its
+[image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-24001/server-image.json)
+records `9.1.0-mldsa.24001` at digest
+`sha256:b27583dfa1f3adc3f96bdcee192b783e0044cfb02837456d459b8ca6eca59b97`.
+Deploy by this immutable digest; moving aliases are not recovery pins.
 
-OpenVox 9 Server is planned as a custom Ubuntu 26.04 container in
-`puppet-control-repo`'s `infra` Compose stack, first on existing
-`docker.home.arpa`, then on Atlas. Its image will install this repository's
-signed, promoted, exact server/agent package pair and explicitly configure
-Java 25, BCJSSE and the security settings below. Stock upstream image
-compatibility with these custom forks is unverified. See the
-[container readiness plan](https://github.com/Enucatl/puppet-control-repo/issues/12).
-This is a deployment decision, not a completed container rollout; the APT
-pipeline remains the native-agent delivery path and image package source.
-After package acceptance, build and accept our fork server image, publish it
-to `ghcr.io/enucatl/openvox-server`, and deploy it by digest through `infra`.
-The image recipe, publication workflow and hosted delivery are verified below.
-Infra Compose integration and live acceptance remain separate work.
+The control repository's isolated integration/recovery acceptance is complete
+([#12](https://github.com/Enucatl/puppet-control-repo/issues/12)). Production
+execution follows the [migration roadmap #9](https://github.com/Enucatl/puppet-control-repo/issues/9)
+and [current plan](https://github.com/Enucatl/puppet-control-repo/blob/dev/docs/26.04-migration-plan.md):
+create Atlas first with 8192 MiB RAM, automate its independent bootstrap (#15/#18),
+then deploy the fresh Vault-held ML-DSA-44 hierarchy and enroll Atlas (#13).
+Aperture and Cognition enroll as they migrate. Existing hosts keep the old
+server until their later handoff; remaining-agent handoff and old-server
+retirement belong to #20. No deployment on the old Docker host precedes Atlas.
+The image is integrated into the `infra` Compose profile; Atlas deployment,
+enrollment and convergence are recorded in the control repository. Service
+cutover and remaining-agent handoff stay separate. All required Atlas setup is
+scripted, with supplied inputs/secrets and no manual guest setup.
+
+Historical release `resolute-18001` passed the complete coordinated pipeline
+in [run 39154755798](https://github.com/Enucatl/openvox-packages/actions/runs/39154755798).
+Its [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/server-image.json)
+records digest `sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
 
 A push to `feature/mldsa44` in Enucatl/openvox, Enucatl/jvm-ssl-utils,
 Enucatl/openvox-server, Enucatl/openvoxserver-ca or Enucatl/vault dispatches
@@ -91,18 +90,18 @@ uses the locked dependencies in `docker/server/uv.lock` at the helpers' existing
 Build and test an accepted release locally with GitHub CLI and Docker:
 
 ```sh
-bash scripts/server-image.sh resolute-18001
+bash scripts/server-image.sh resolute-24001
 ```
 
 The `Server image` reusable workflow is the final stage of `Coordinated packages`,
 after package acceptance and promotion, and also runs manually for a selected
 accepted release. It builds/tests the image, then publishes these tags:
 
-- `ghcr.io/enucatl/openvox-server:9.1.0-mldsa.18001` identifies upstream version and coordinated build.
+- `ghcr.io/enucatl/openvox-server:9.1.0-mldsa.24001` identifies upstream version and coordinated build.
 - `ghcr.io/enucatl/openvox-server:9.1.0` moves with promoted builds of that upstream version.
 - `ghcr.io/enucatl/openvox-server:latest` moves with the promoted package release.
 
-These examples use the accepted `resolute-18001` APT release; the OS codename
+These examples use the accepted `resolute-24001` APT release; the OS codename
 remains an archive identifier and does not appear in image tags. Rebuilding an
 older release leaves both moving aliases unchanged. Publication rejects
 draft, prerelease and unaccepted package releases. The release's
@@ -145,8 +144,10 @@ has now passed as recorded above; live infrastructure rollout remains separate.
 `tests/server-image.sh IMAGE` checks nonroot runtime/helper imports, explicit
 test-only RSA and ML-DSA CA setup, verified HTTPS, foreground logging, graceful shutdown
 and identity-preserving container recreation. It uses disposable volumes and
-does not contact production services. Full control-repo ML-DSA enrollment and
-Atlas recovery remain the open gates in issue #12/#18. Verify GHCR visibility
+does not contact production services. Control-repo ML-DSA enrollment and
+isolated recovery passed in [control-repo #12](https://github.com/Enucatl/puppet-control-repo/issues/12).
+Atlas deployment and enrollment are recorded under [#13](https://github.com/Enucatl/puppet-control-repo/issues/13);
+full application recovery remains [#18](https://github.com/Enucatl/puppet-control-repo/issues/18). Verify GHCR visibility
 and pull access before rollout; retain registry access and image recovery inputs
 independently if the package is private.
 
@@ -214,8 +215,8 @@ For the production server, install the exact accepted `openvox-server` and
 `openvox-agent` pair during the custom Ubuntu 26.04 image build in
 this repository, recording its versioned release and manifest. Deploy through
 `puppet-control-repo` and run that
-container on the existing Docker host only after container acceptance; its
-26.04 userland does not require first upgrading the host OS. Rebuild and accept
+container on Atlas after independent bootstrap; Docker continues serving
+legacy agents and workloads during coexistence. Rebuild and accept
 the image to update the server pair. Host-agent APT upgrades do not update it.
 This does not schedule fleet installation or migrate existing PKI identities.
 

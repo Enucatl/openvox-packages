@@ -1,6 +1,16 @@
 # Publishing the ML-DSA OpenVox packages
 
-Status: full coordinated delivery verified, 18 October 2026. Release
+Current migration baseline: accepted
+[`resolute-24001`](https://github.com/Enucatl/openvox-packages/releases/tag/resolute-24001),
+with [image provenance](https://github.com/Enucatl/openvox-packages/releases/download/resolute-24001/server-image.json)
+at digest `sha256:b27583dfa1f3adc3f96bdcee192b783e0044cfb02837456d459b8ca6eca59b97`.
+The control repository's [#12](https://github.com/Enucatl/puppet-control-repo/issues/12)
+is closed: isolated integration, enrollment and recovery passed. Follow
+[roadmap #9](https://github.com/Enucatl/puppet-control-repo/issues/9) and the
+[current migration plan](https://github.com/Enucatl/puppet-control-repo/blob/dev/docs/26.04-migration-plan.md)
+for production execution. Historical delivery measurements below are retained.
+
+Historical status: full coordinated delivery verified, 18 October 2026. Release
 [`resolute-18001`](https://github.com/Enucatl/openvox-packages/releases/tag/resolute-18001)
 passed [run 39154755798](https://github.com/Enucatl/openvox-packages/actions/runs/39154755798):
 shared source suites, native builds and signed APT/installed RSA/ML-DSA/Vault
@@ -9,8 +19,8 @@ build/lifecycle checks and GHCR publication. Public tags `9.1.0-mldsa.18001`,
 `9.1.0` and `latest` were anonymously verified at digest
 `sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
 The release's `server-image.json` records the image and contained package
-provenance. Real control-repo integration, independent recovery and fleet
-cutover remain open.
+provenance. The later isolated control-repo acceptance is recorded above;
+production Atlas bootstrap and migration remain open.
 
 ## Earlier package-delivery evidence
 
@@ -42,13 +52,18 @@ verified the full ML-DSA identity lifecycle.
 [Complete-flow evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/task12-verification.txt),
 [VM evidence](https://github.com/Enucatl/openvox-packages-acceptance/releases/download/resolute-13001/ubuntu26-systemd-resolute-13001.txt).
 
-## Server deployment decision (18 October 2026)
+## Current server deployment decision
 
 The server's production target is a custom Ubuntu 26.04 container in
 `puppet-control-repo`'s `infra` Compose stack (`docker/docker-compose.yml`),
-first on the existing `docker.home.arpa` host, then on Atlas. The authoritative
-[container readiness plan](https://github.com/Enucatl/puppet-control-repo/issues/12)
-covers implementation and acceptance; no container deployment is claimed here.
+first on Atlas with 8192 MiB RAM while the existing Docker host stays running.
+#15/#18 supply reproducible VM creation and independent bootstrap, with all
+setup scripted. The fresh root key stays in Vault; existing CRL behavior stays
+in place. #13 records Atlas deployment, enrollment and convergence; Aperture
+and Cognition enroll as they migrate.
+Legacy agents stay on the old server until their later handoff; #20 owns the
+remaining-agent handoff and old-server retirement. See the canonical roadmap
+above. The old Docker host remains in service during coexistence.
 Build the image from this repository's signed, promoted, exact server/agent
 package pair, retaining the forked SSL library and CA gem and explicit Java 25,
 BCJSSE and security settings. A stock upstream image is not accepted evidence
@@ -62,11 +77,12 @@ success requires image build, lifecycle checks and GHCR publication to pass.
 Signed APT remains native-agent delivery and the image's package source; GHCR
 becomes server delivery. The Ubuntu image recipe, lifecycle smoke test and
 downstream `Server image` publication workflow are implemented and verified by
-the full run above. Real control-repo integration/recovery remains an open gate.
+the historical run above. Isolated control-repo integration/recovery passed
+under #12; Atlas deployment and enrollment are recorded under #13. Full
+application recovery remains #18.
 
-The Ubuntu 26.04 container userland can run on the existing Docker host after
-container acceptance, independently of its host OS upgrade. Native Ubuntu 24.04
-and Debian/Proxmox agent compatibility remains a separate gate; do not install
+The Ubuntu 26.04 container userland is independent of its host OS. Native
+Ubuntu 24.04 and Debian/Proxmox packages passed their package acceptance; do not install
 these Ubuntu 26.04 binaries on those hosts. Host-systemd checks remain package
 verification/reference rather than the production server deployment model.
 
@@ -443,7 +459,9 @@ upgrades separately only if we decide to use them.
 
 Installation does not turn existing RSA identities into ML-DSA identities.
 Provider configuration, CA import, `key_type=mldsa44`, enrollment and the PKI
-cutover remain the work described in migration issues #12/#13/#23.
+cutover follow [control-repo roadmap #9](https://github.com/Enucatl/puppet-control-repo/issues/9).
+#12 completed isolated acceptance; #13 handles the new deployment/enrollment,
+#18 Atlas bootstrap/recovery and #19/#20 staged cutover and retirement.
 
 Restore a specific previous tested package set using the corresponding
 versioned release URL, its signed indexes and matching versions. An intentional
@@ -519,13 +537,14 @@ repository metadata valid for the intended update cadence; if we set
 - [x] Pass the complete multi-target pipeline and final image publication in
       `resolute-18001`, including default RSA and explicit ML-DSA image HTTPS,
       graceful stop and identity-preserving recreation.
-- [ ] Run the live canary before fleet expansion. Keep actual deployed versions
-      as records, not source pins.
+- [ ] Execute the Atlas-first migration under control-repo #9: enroll only
+      Atlas, Aperture and Cognition as they migrate, then hand off remaining
+      legacy agents under #20. Keep actual deployed versions as records.
 
 The native Ubuntu 24.04 and Debian 13/Proxmox agent builds passed hosted installed
 acceptance alongside Ubuntu 26.04 in `resolute-18001`. This does not change fleet
-configuration or complete the canary;
+configuration or complete the Atlas migration;
 the server container's 26.04 userland remains independent of its host agent.
 
 The repository, signer and automatically promoted tested releases now exist. Fleet client
-configuration has not been changed; actual fleet canary/cutover remains separate.
+configuration has not been changed; Atlas execution and staged cutover remain separate.
