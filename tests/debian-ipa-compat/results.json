@@ -27,8 +27,70 @@
     "result": "passed",
     "patch": "docker/freeipa-client/public-key-info.patch",
     "application": "patch --batch --fuzz=0 -p1, second hunk offset -4 lines",
-    "checks": ["ML-DSA-44 SPKI matches independent OpenSSL DER", "RSA-2048 SPKI matches independent OpenSSL DER", "ECDSA P-256 SPKI matches independent OpenSSL DER"]
+    "checks": [
+      "ML-DSA-44 SPKI matches independent OpenSSL DER",
+      "RSA-2048 SPKI matches independent OpenSSL DER",
+      "ECDSA P-256 SPKI matches independent OpenSSL DER"
+    ]
   },
   "conclusion": "Both backports are needed for current Debian 13 packages. Installing libcurl's GnuTLS variant alone would not fix ipa-join, which requires the OpenSSL variant.",
-  "limitations": ["This evidence uses disposable containers and generated test identities; it does not enroll a Debian host or exercise a real Kerberos identity.", "Final patched .deb checks are performed by the package build's Dockerfile acceptance checks."]
+  "limitations": [
+    "No production host was changed by this acceptance; no host enrollment or real Kerberos identity was exercised.",
+    "The containers lack a running systemd instance; runtime Puppet service start prevention was checked through the recorded systemctl calls and mask symlink.",
+    "Future distribution package revisions still require review; this run does not dynamically exercise installation over a newer security revision."
+  ],
+  "shared_provisioning": {
+    "result": "passed on fresh and repeated installation for both targets",
+    "installer": "puppet-control-repo/proxmox/install-openvox.sh",
+    "installer_sha256": "bcf6d83b340d5d5991ab40a1c7dfdd24d45ec48124c4c6d3c3fb2a4faaf686aa",
+    "repositories": [
+      "https://github.com/Enucatl/openvox-packages/releases/download/resolute-24001/",
+      "https://github.com/Enucatl/openvox-packages/releases/download/native-client-2-1/"
+    ],
+    "archive_authentication": {
+      "primary_fingerprint": "775661C709ACE6F7C1CF0FF6C4B7528F03E0BB94",
+      "signing_subkey": "6A2BD62CDDCA7B57AB4A72B4E42405A4A338BCB5",
+      "checks": [
+        "Installer validates downloaded archive public key fingerprint",
+        "APT accepts both signed repositories without trust overrides",
+        "Independent gpgv verification of both cached InRelease files reports valid signatures with the expected primary fingerprint"
+      ]
+    },
+    "targets": {
+      "debian13": {
+        "base_image": "debian:13@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5",
+        "packages": {
+          "openvox-agent": "9.1.0+homelab.24001-1+debian13",
+          "curl": "8.14.1-2+deb13u7+homelab.1+debian13",
+          "libcurl4t64": "8.14.1-2+deb13u7+homelab.1+debian13",
+          "python3-ipalib": "4.12.4-1+homelab.1+debian13"
+        }
+      },
+      "ubuntu26.04": {
+        "base_image": "ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944",
+        "packages": {
+          "openvox-agent": "9.1.0+homelab.24001-1+ubuntu26.04",
+          "curl": "8.18.0-1ubuntu2.8+homelab.1+ubuntu26.04",
+          "libcurl4t64": "8.18.0-1ubuntu2.8+homelab.1+ubuntu26.04",
+          "python3-ipalib": "4.13.1-1+homelab.1+ubuntu26.04"
+        }
+      }
+    },
+    "checks_on_each_target": [
+      "Four exact accepted package versions installed by the unmodified shared installer",
+      "Native OpenVox Ruby generates ML-DSA-44 keys, signs and verifies, and writes the required seed-only private key representation",
+      "Puppet main and agent key_type is mldsa44",
+      "curl accepts credential-free Negotiate over trusted ML-DSA-44, RSA-2048 and ECDSA P-256 TLS",
+      "curl rejects untrusted CA and wrong hostname for each of those three algorithms",
+      "FreeIPA SPKI matches independent OpenSSL DER for all three algorithms",
+      "Repeated shared provisioning succeeds without replacing accepted packages",
+      "Puppet remains masked; service trace contains mask before package installation and daemon-reload, with no unmask or start"
+    ],
+    "systemctl_trace_per_run": [
+      "mask --runtime --now puppet.service",
+      "daemon-reload"
+    ],
+    "isolation": "Disposable Docker containers; systemctl alone is replaced with a stub that records calls and creates the runtime Puppet mask symlink. APT, package signatures, package installation, OpenVox, Ruby, OpenSSL, curl and Python libraries are real.",
+    "no_downgrades": "Installer contains no --allow-downgrades and no unauthenticated/trusted=yes overrides; acceptance used fresh and already-accepted packages, not a newer security revision."
+  }
 }
