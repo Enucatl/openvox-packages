@@ -45,7 +45,7 @@ def run_agent(name, key_type, log, wait: 1)
   FileUtils.cp('active/ca-chain.pem', "#{base}/ssl/certs/ca.pem")
   command = ['/opt/puppetlabs/puppet/bin/ruby', '-r/test/tls-evidence.rb', '/opt/puppetlabs/puppet/bin/puppet', 'agent', '--test', '--confdir', base, '--vardir', "#{base}/var", '--publicdir', "#{base}/public", '--ssldir', "#{base}/ssl", '--rundir', "#{base}/run", '--logdir', "#{base}/log", '--certname', name, '--server', 'localhost', '--ca_server', 'localhost', '--key_type', key_type, '--waitforcert', wait.to_s, '--no-report', '--detailed-exitcodes', '--color', 'false']
   File.write("#{log}.command.json", JSON.pretty_generate(command))
-  trace = { 'MLDSA_TLS_EVIDENCE' => "/test/#{log}.tls.jsonl" }
+  trace = { 'MLDSA_TLS_EVIDENCE' => "/test/#{log}.tls.jsonl", 'OPENSSL_CONF' => nil, 'RUBYOPT' => nil, 'LD_PRELOAD' => nil }
   pid = Process.spawn(trace, *command, out: log, err: [:child, :out])
   begin
     Timeout.timeout(180) { Process.wait(pid) }
@@ -55,6 +55,13 @@ def run_agent(name, key_type, log, wait: 1)
     Process.wait(pid)
     raise "Agent timed out; see #{log}"
   end
+end
+
+def seed_only_key_check(label, name)
+  pem = File.read(agent_identity(name).first)
+  key_info = OpenSSL::ASN1.decode(pem.lines[1...-1].join.unpack1('m'))
+  seed = OpenSSL::ASN1.decode(key_info.value.fetch(2).value)
+  check("#{label}/seed_only_private_key", key_info.value.fetch(1).value.first.oid == '2.16.840.1.101.3.4.3.17' && seed.tag_class == :CONTEXT_SPECIFIC && seed.tag == 0 && seed.value.is_a?(String) && seed.value.bytesize == 32)
 end
 
 def cert_check(label, certificate, algorithm)
@@ -157,6 +164,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     end
     application = vault ? 'fresh_agent_catalog_and_Hiera_apply' : 'fresh_agent_catalog_apply'
     check("#{label}/#{application}", run_agent('client', key_type, "#{label}/agent-first.log") == 2 && File.read('/test/applied-client') == 'mldsa-catalog-applied')
+    seed_only_key_check("#{label}/enrolled", 'client') if algorithm == 'ML-DSA-44'
     original = OpenSSL::X509::Certificate.new(File.read(agent_identity('client').last))
     cert_check("#{label}/issued", original, algorithm)
     initial_crl = OpenSSL::X509::CRL.new(http('Get', '/puppet-ca/v1/certificate_revocation_list/ca').body)
@@ -189,12 +197,14 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     denied_csr = File.read('active/ca/requests/denied.pem')
     mismatch = http('Put', '/puppet-ca/v1/certificate_request/impostor', body: denied_csr)
     check("#{label}/CSR_name_mismatch_rejected", mismatch.code == '400' && !File.exist?('active/ca/signed/impostor.pem'))
+    original_key_pem = File.binread(agent_identity('client').first)
     renewal = http('Post', '/puppet-ca/v1/certificate_renewal', identity: agent_identity('client'))
     check("#{label}/renewal_API", renewal.code == '200')
     renewed = OpenSSL::X509::Certificate.new(renewal.body)
     cert_check("#{label}/renewed", renewed, algorithm)
     check("#{label}/renewal_same_key_new_serial", renewed.public_key.public_to_der == original.public_key.public_to_der && renewed.serial != original.serial)
     File.write(agent_identity('client').last, renewed.to_pem)
+    check("#{label}/renewal_preserves_private_key_file", File.binread(agent_identity('client').first) == original_key_pem)
     check("#{label}/renewed_identity_connects", http('Get', '/puppet/v3/environments', identity: agent_identity('client')).code == '200')
     if vault
       status, login = vault_agent_login(agent_identity('client'), "#{label}/vault-renewed")
@@ -239,6 +249,7 @@ check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
     check("#{label}/authorized_identity_cleanup", cleanup.code == '204')
     FileUtils.rm_rf('active/client/ssl')
     check("#{label}/replacement_agent_applies", [0, 2].include?(run_agent('client', key_type, "#{label}/agent-replacement.log")))
+    seed_only_key_check("#{label}/replacement", 'client') if algorithm == 'ML-DSA-44'
     replacement = OpenSSL::X509::Certificate.new(File.read(agent_identity('client').last))
     cert_check("#{label}/replacement", replacement, algorithm)
     check("#{label}/replacement_has_new_key_and_serial", replacement.public_key.public_to_der != original.public_key.public_to_der && replacement.serial != renewed.serial)

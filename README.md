@@ -251,6 +251,28 @@ Never use `Trusted: yes` or disable signature/hash checks.
 
 ## Checks
 
+The client fork writes newly generated ML-DSA private keys as seed-only PKCS#8:
+the private-key payload is a context-specific `[0]` value containing the 32-byte
+seed. Existing key files are not rewritten automatically; other key types keep
+their existing serialization. File permissions, atomic writes and write errors
+continue through the existing client writer. The writer calls the bundled
+`openssl pkey -provparam ml-dsa.output_formats=seed-only` subprocess, which handles
+encoding and encryption with policy scoped to that child. No global OpenSSL
+configuration is required. Keys and passwords travel through private pipes.
+The CLI rejects passwords over 1,023 bytes or containing NUL, CR or LF before
+writing. The coordinated build resolves the corrected `feature/mldsa44`
+fork commit through the existing source snapshot input. The
+[squashed client change](https://github.com/Enucatl/openvox/commit/0abc7dda4c29d598f8ef4bbd551ca2ef98df1b26)
+rebases the four fork commits over twelve upstream commits through `c77530a905`,
+including the `2026.10.22.1` runtime build input.
+
+The installed-agent self-check and lifecycle agent processes run with
+`OPENSSL_CONF`, `RUBYOPT` and `LD_PRELOAD` unset. The self-check verifies seed-only
+persistence, reload and signing; lifecycle checks inspect freshly enrolled and
+replacement client keys and confirm that certificate renewal preserves the key
+file byte-for-byte. These checks do not remove the control repository's service
+override or `openvox-child-policy.rb` helper; deployment changes remain separate.
+
 `tests/archive.sh` exercises archive integrity. `tests/server-recipe.rb` invokes
 `scripts/configure-build.rb` to check coordinated versions, local SSL coordinates
 and invalid inputs, and tests the local CA gem installer. `tests/source-recipe.rb`
