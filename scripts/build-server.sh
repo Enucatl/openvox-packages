@@ -22,7 +22,7 @@ docker run --rm -i -v "$build:/build" openvox-packages-server-builder bash -euo 
   cat > /root/.lein/profiles.clj <<'CLOJURE'
 {:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}}
 CLOJURE
-  git config --global --add safe.directory "*"
+  git config --system --add safe.directory "*"
   gem install bundler --no-document
   JAVA_HOME_21_X64=/usr/lib/jvm/java-21-openjdk bash /build/build-jruby-openssl.sh /build/jruby-openssl /build/openvox-server/resources/ext/build-scripts/jruby-openssl.gem
   cd /build/openvoxserver-ca

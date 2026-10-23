@@ -11,6 +11,17 @@ server_version = '9.1.1+homelab.42-1+ubuntu26.04'
 agent_version = '9.1.0+homelab.42-1+ubuntu26.04'
 
 Dir.mktmpdir do |root|
+  git_env = { 'GIT_CONFIG_SYSTEM' => "#{root}/gitconfig", 'GIT_CONFIG_GLOBAL' => File::NULL,
+              'GIT_TEST_ASSUME_DIFFERENT_OWNER' => '1' }
+  trust_command = File.read(File.expand_path('../scripts/build-server.sh', __dir__)).lines.find { |line| line.include?('safe.directory') }
+  _, error, status = Open3.capture3(git_env, 'bash', '-c', trust_command)
+  raise error unless status.success?
+  repo = "#{root}/mounted-repo"
+  _, error, status = Open3.capture3('git', 'init', repo)
+  raise error unless status.success?
+  _, error, status = Open3.capture3(git_env, 'git', '-C', repo, 'ls-files')
+  raise "Mounted repository is not trusted without user config: #{error}" unless status.success?
+
   paths = %w[jvm-ssl-utils/project.clj openvox-server/project.clj openvox-server/resources/ext/ezbake.conf openvox-server/resources/ext/build-scripts/jruby-gem-list.txt openvox-server/resources/ext/build-scripts/install-vendored-gems.sh]
   reset = lambda do
     paths.each do |path|
