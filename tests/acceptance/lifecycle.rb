@@ -80,7 +80,7 @@ def cert_check(label, certificate, algorithm)
 end
 
 check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
-lifecycle_variants(ENV.fetch('TARGET')).each do |algorithm, key_type, fixtures, label|
+lifecycle_variants(ENV.fetch('TARGET'), ENV.fetch('ACCEPTANCE_GROUP', 'all')).each do |algorithm, key_type, fixtures, label|
   vault = fixtures == 'vault-state'
   FileUtils.mkdir_p(label)
   environment = '/test/code/environments/production'

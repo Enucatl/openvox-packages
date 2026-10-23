@@ -2,11 +2,15 @@ require 'tmpdir'
 require 'open3'
 require 'fileutils'
 
-abort 'Usage: repackage-server.rb TEMPLATE OUTPUT SERVER_VERSION AGENT_VERSION' unless ARGV.size == 4
-template, output, server, agent = ARGV
+abort 'Usage: repackage-server.rb TEMPLATE OUTPUT SERVER_VERSION AGENT_VERSION [EXPECTED_TEMPLATE_VERSION]' unless [4, 5].include?(ARGV.size)
+template, output, server, agent, expected = ARGV
 pattern = /\A[0-9][0-9A-Za-z.+:~]*\+homelab\.([0-9]+)-1\+(ubuntu26\.04|debian13)\z/
 server_match, agent_match = [server, agent].map { |version| pattern.match(version) }
 abort 'Expected coordinated package versions' unless server_match && agent_match && server_match.captures == agent_match.captures
+if expected
+  expected_match = /\A[0-9][0-9A-Za-z.+:~]*-homelab\.([0-9]+)-1\+(ubuntu26\.04)\z/.match(expected)
+  abort 'Expected initial Ubuntu server version from this build' unless expected_match && expected_match.captures == server_match.captures
+end
 
 Dir.mktmpdir do |root|
   archive_members, status = Open3.capture2('ar', 't', template)
@@ -22,11 +26,13 @@ Dir.mktmpdir do |root|
   control = File.read(path)
   abort 'Expected server package' unless control.match?(/^Package: openvox-server$/) && control.match?(/^Architecture: all$/)
   old = control.match(/^Version: (.+)$/)&.[](1)
-  old_match = old && pattern.match(old)
+  old_match = expected ? expected_match : old && pattern.match(old)
+  abort 'Initial template version changed' if expected && old != expected
   abort 'Template is from a different build' unless old_match && old_match[1] == server_match[1]
   dependency = /openvox-agent \(= ([^)]+)\)/
   old_agent = control.scan(dependency)
   abort 'Expected one coordinated agent dependency' unless old_agent.size == 1 && pattern.match(old_agent[0][0])&.captures == old_match.captures
+  abort 'Initial agent dependency changed' if expected && old_agent[0][0] != agent
   control = control.sub(/^Version: .+$/, "Version: #{server}").sub(dependency, "openvox-agent (= #{agent})")
   File.write(path, control)
   # Only rebuild control metadata; the original payload keeps its bytes and ownership.

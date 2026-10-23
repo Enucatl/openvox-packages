@@ -20,7 +20,8 @@ Dir.mktmpdir do |dir|
     #!/usr/bin/env ruby
     require 'fileutils'
     case ARGV.shift
-    when 'build'
+    when 'buildx'
+      raise 'Expected buildx build with local image loading' unless ARGV.shift == 'build' && ARGV.include?('--load')
       File.write(ENV.fetch('FIXTURE_DOCKER_ARGS'), ARGV.join("\n"))
       warn 'APT fixture: candidate repository unavailable'
       exit 42
@@ -31,13 +32,18 @@ Dir.mktmpdir do |dir|
   RUBY
   FileUtils.chmod(0o755, "#{dir}/bin/docker")
   env = { 'PATH' => "#{dir}/bin:#{ENV.fetch('PATH')}", 'FIXTURE_CONTAINER' => "#{dir}/container", 'FIXTURE_DOCKER_ARGS' => "#{dir}/docker-args", 'AGENT_VERSION' => 'fixture', 'SERVER_VERSION' => 'fixture' }
-  %w[ubuntu26.04 debian13].each do |target|
-    output, status = Open3.capture2e(env.merge('TARGET' => target), 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
+  [['ubuntu26.04', nil], ['debian13', nil], ['ubuntu26.04', 'rsa'], ['ubuntu26.04', 'mldsa'], ['debian13', 'mldsa']].each do |target, group|
+    output, status = Open3.capture2e(env.merge('TARGET' => target, 'ACCEPTANCE_GROUP' => group), 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
     raise "Build failure was hidden: #{output}" unless status.exitstatus == 42 && output.include?('build acceptance image and install packages') && output.include?('candidate repository unavailable')
     args = File.readlines("#{dir}/docker-args", chomp: true)
     raise "Wrong upstream replacement fixture for #{target}" unless args.include?("UPSTREAM_RELEASE=openvox9-release-#{target}.deb") && args.include?("UPSTREAM_AGENT_VERSION=9.1.0-1+#{target}")
     raise "Unpinned acceptance image for #{target}" unless args.any? { |arg| arg.start_with?("BASE_IMAGE=#{target.start_with?('ubuntu') ? 'ubuntu' : 'debian'}:") && arg.include?('@sha256:') }
+    raise 'Lifecycle group was not forwarded to the image' unless args.include?("ACCEPTANCE_GROUP=#{group || 'all'}")
+    raise 'Parallel lifecycle images share a tag' unless args.fetch(args.index('-t') + 1).include?(":#{target}-#{group || 'all'}-")
   end
+  before = File.read(env.fetch('FIXTURE_DOCKER_ARGS'))
+  _, status = Open3.capture2e(env.merge('ACCEPTANCE_GROUP' => 'invalid'), 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
+  raise 'Invalid group reached Docker' unless status.exitstatus == 2 && File.read(env.fetch('FIXTURE_DOCKER_ARGS')) == before
   evidence = "#{dir}/evidence/acceptance"
   raise 'Build log was lost before a container existed' unless File.read("#{evidence}/build.log").include?('candidate repository unavailable')
   raise 'Host failure status was lost' unless File.read("#{evidence}/host-status.txt").include?('exit_code=42')

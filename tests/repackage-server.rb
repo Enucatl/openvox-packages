@@ -8,6 +8,7 @@ require 'stringio'
 script = File.expand_path('../scripts/repackage-server.rb', __dir__)
 server = '9.1.1+homelab.42-1+ubuntu26.04'
 agent = '9.1.0+homelab.42-1+ubuntu26.04'
+initial = '9.1.2-homelab.42-1+ubuntu26.04'
 control = <<~CONTROL
   Package: openvox-server
   Version: #{server}
@@ -64,13 +65,15 @@ Dir.mktmpdir do |root|
     path
   end
   %w[none xz gzip].each do |compression|
-    template = build_template.call(control, compression)
-    original_control = members(capture('dpkg-deb', '--ctrl-tarfile', template))
-    data_member = capture('ar', 't', template).lines.map(&:strip).find { |name| name.start_with?('data.tar') }
-    %w[debian13].each do |target|
-      target_server, target_agent = [server, agent].map { |version| version.sub('ubuntu26.04', target) }
-      output = "#{root}/#{target}-#{compression}.deb"
-      capture(RbConfig.ruby, script, template, output, target_server, target_agent)
+    [
+      [control, server.sub('ubuntu26.04', 'debian13'), agent.sub('ubuntu26.04', 'debian13'), []],
+      [control.sub(server, initial), server, agent, [initial]]
+    ].each_with_index do |(text, target_server, target_agent, arguments), index|
+      template = build_template.call(text, compression)
+      original_control = members(capture('dpkg-deb', '--ctrl-tarfile', template))
+      data_member = capture('ar', 't', template).lines.map(&:strip).find { |name| name.start_with?('data.tar') }
+      output = "#{root}/#{index}-#{compression}.deb"
+      capture(RbConfig.ruby, script, template, output, target_server, target_agent, *arguments)
       raise 'Wrong server version' unless capture('dpkg-deb', '-f', output, 'Version').strip == target_server
       raise 'Wrong agent dependency' unless capture('dpkg-deb', '-f', output, 'Depends').include?("openvox-agent (= #{target_agent})")
       raise 'Server payload or ownership changed' unless capture('dpkg-deb', '--fsys-tarfile', output) == payload
@@ -97,6 +100,24 @@ Dir.mktmpdir do |root|
     _, _, status = Open3.capture3(RbConfig.ruby, script, template, output, target_server, target_agent)
     raise 'Accepted an invalid server template or version pair' if status.success?
     raise 'Wrote output for invalid input' if File.exist?(output)
+  end
+  initial_control = control.sub(server, initial)
+  [
+    [initial_control, server, agent, initial.sub('.42-', '.43-')],
+    [initial_control.sub(initial, initial.sub('9.1.2', '9.1.3')), server, agent, initial],
+    [initial_control, server.sub('.42-', '.43-'), agent.sub('.42-', '.43-'), initial],
+    [initial_control.sub(agent, agent.sub('9.1.0', '9.1.3')), server, agent, initial],
+    [initial_control.sub(agent, agent.sub('.42-', '.43-')), server, agent, initial],
+    [initial_control.sub(agent, agent.sub('ubuntu26.04', 'debian13')), server, agent, initial],
+    [initial_control, server.sub('ubuntu26.04', 'debian13'), agent.sub('ubuntu26.04', 'debian13'), initial],
+    [initial_control, server, agent, 'unversioned'],
+    [control, server, agent, server]
+  ].each do |text, target_server, target_agent, expected|
+    template = build_template.call(text)
+    output = "#{root}/invalid-initial.deb"
+    _, _, status = Open3.capture3(RbConfig.ruby, script, template, output, target_server, target_agent, expected)
+    raise 'Accepted invalid initial server metadata' if status.success?
+    raise 'Wrote output for invalid initial metadata' if File.exist?(output)
   end
   template = "#{root}/broken.deb"
   File.write(template, 'not a Debian archive')

@@ -1,6 +1,7 @@
-def lifecycle_variants(target)
+def lifecycle_variants(target, group = 'all')
+  raise "Unsupported acceptance group: #{group}" unless %w[all rsa mldsa].include?(group)
   imported_mldsa = ['ML-DSA-44', 'mldsa44', 'vault-state', 'ML-DSA-44-lifecycle']
-  case target
+  variants = case target
   when 'ubuntu26.04'
     [
       ['RSA', 'rsa', 'RSA', 'RSA-lifecycle'],
@@ -13,4 +14,7 @@ def lifecycle_variants(target)
   else
     raise "Unsupported acceptance target: #{target}"
   end
+  variants = variants.select { |algorithm, *| algorithm == (group == 'rsa' ? 'RSA' : 'ML-DSA-44') } unless group == 'all'
+  raise "No acceptance variants for #{target}/#{group}" if variants.empty?
+  variants
 end

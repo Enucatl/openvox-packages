@@ -28,7 +28,7 @@ echo 'Installed fork Debian packages; no Ruby library or server JAR overlays.' >
 { dpkg-query -W openvox-agent openvox-server openjdk-25-jre-headless; java -version; vault version; sha256sum server.jar /usr/local/bin/vault; } > versions.txt 2>&1
 stage='installed JRuby OpenSSL'; log=jruby-openssl.log
 /opt/puppetlabs/bin/puppetserver ruby /test/jruby-openssl.rb > "$log" 2>&1
-if [ "$TARGET" = ubuntu26.04 ]; then
+if [ "$TARGET" = ubuntu26.04 ] && [ "${ACCEPTANCE_GROUP:-all}" != mldsa ]; then
   stage='generate RSA fixtures'; log=generate.log
   sh generate.sh > "$log" 2>&1
   stage='generate RSA CRLs'; log=crls.log

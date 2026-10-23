@@ -1,18 +1,22 @@
 ARG BASE_IMAGE
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS prerequisites
 ENV DEBIAN_FRONTEND=noninteractive
-ARG TARGET
-ENV TARGET=${TARGET}
 ARG UPSTREAM_RELEASE
 ARG UPSTREAM_AGENT_VERSION
+# Refresh distro packages daily, retaining the cache between same-day releases.
+ARG PREREQUISITES_DATE
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg openjdk-25-jdk-headless openssl && rm -rf /var/lib/apt/lists/*
+# Exercise installation over an upstream agent; fork packages must replace it.
+RUN curl -fsSLo /tmp/openvox-release.deb "https://apt.voxpupuli.org/$UPSTREAM_RELEASE" && dpkg -i /tmp/openvox-release.deb && apt-get update && apt-get install -y --no-install-recommends "openvox-agent=$UPSTREAM_AGENT_VERSION" && test "$(dpkg-query -W -f='${Version}' openvox-agent)" = "$UPSTREAM_AGENT_VERSION" && for source in /etc/apt/sources.list.d/*; do if grep -q apt.voxpupuli.org "$source"; then mv "$source" "$source.disabled"; fi; done && rm -rf /var/lib/apt/lists/*
+FROM prerequisites AS acceptance
+ARG TARGET
+ARG ACCEPTANCE_GROUP=all
+ENV TARGET=${TARGET} ACCEPTANCE_GROUP=${ACCEPTANCE_GROUP}
 ARG APT_URL
 ARG AGENT_VERSION
 ARG SERVER_VERSION
 ARG PREVIOUS_AGENT
 ARG PREVIOUS_SERVER
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg openjdk-25-jdk-headless openssl && rm -rf /var/lib/apt/lists/*
-# Exercise installation over an upstream agent; fork packages must replace it.
-RUN curl -fsSLo /tmp/openvox-release.deb "https://apt.voxpupuli.org/$UPSTREAM_RELEASE" && dpkg -i /tmp/openvox-release.deb && apt-get update && apt-get install -y --no-install-recommends "openvox-agent=$UPSTREAM_AGENT_VERSION" && test "$(dpkg-query -W -f='${Version}' openvox-agent)" = "$UPSTREAM_AGENT_VERSION" && for source in /etc/apt/sources.list.d/*; do if grep -q apt.voxpupuli.org "$source"; then mv "$source" "$source.disabled"; fi; done && rm -rf /var/lib/apt/lists/*
 COPY --chmod=0644 archive-key.asc /usr/share/keyrings/openvox-homelab.asc
 COPY --chmod=0644 openvox.pref /etc/apt/preferences.d/openvox-homelab
 RUN printf 'deb [signed-by=/usr/share/keyrings/openvox-homelab.asc] %s ./\n' "$APT_URL" > /etc/apt/sources.list.d/openvox.sources.list

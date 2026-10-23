@@ -22,11 +22,14 @@ if [[ -z ${SERVER_BUILDER_IMAGE:-} ]]; then
   docker build -t openvox-packages-server-builder "$build/openvox-server"
   SERVER_BUILDER_IMAGE=openvox-packages-server-builder
 fi
-mkdir -p "$HOME/.m2"
-docker run --rm --userns=host -v "$build:/build" -v "$HOME/.m2:/root/.m2" "$SERVER_BUILDER_IMAGE" bash -euo pipefail -c "$(cat <<'BUILD'
+builder_bundle=${RUNNER_TEMP:-/tmp}/openvox-packages-builder-bundle
+mkdir -p "$HOME/.m2" "$builder_bundle"
+docker run --rm --userns=host -v "$build:/build" -v "$HOME/.m2:/root/.m2" -v "$builder_bundle:/bundle" -e BUNDLE_PATH=/bundle "$SERVER_BUILDER_IMAGE" bash -euo pipefail -c "$(cat <<'BUILD'
   mkdir -p /root/.lein
   cat > /root/.lein/profiles.clj <<'CLOJURE'
-{:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}}
+{:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}
+ ;; Keep the override when Leiningen strips non-leaky profiles for JAR creation.
+ :package ^:leaky {:classifiers ^:replace []}}
 CLOJURE
   git config --system --add safe.directory "*"
   gem install bundler --no-document
@@ -37,28 +40,24 @@ CLOJURE
   git -c user.name="OpenVox Packages" -c user.email="packages@localhost" commit -m "Apply coordinated package recipe"
   bundle config set without test
   bundle install
-  lein install
-  COW=base-ubuntu26.04-i386.cow MOCK= GEM_SOURCE=https://rubygems.org EZBAKE_ALLOW_UNREPRODUCIBLE_BUILDS=true EZBAKE_NODEPLOY=true LEIN_PROFILES=ezbake lein with-profile user,ezbake,provided ezbake local-build
+  lein with-profile +package install
+  COW=base-ubuntu26.04-i386.cow MOCK= GEM_SOURCE=https://rubygems.org EZBAKE_ALLOW_UNREPRODUCIBLE_BUILDS=true EZBAKE_NODEPLOY=true LEIN_PROFILES=ezbake,package lein with-profile user,ezbake,provided,package ezbake local-build
 BUILD
 )"
 mapfile -t packages < <(find "$build/openvox-server/output" -name '*.deb' -type f)
 [[ ${#packages[@]} == 1 ]]
-# Preserve EZbake's maintainer scripts and payload while assigning the archive version.
-sudo dpkg-deb --raw-extract "${packages[0]}" "$build/package"
-sudo ruby - "$build/package/DEBIAN/control" "$SERVER_VERSION" <<'RUBY'
-path, version = ARGV
-text = File.read(path)
-raise 'Missing or duplicate package version' unless text.scan(/^Version: .+$/).size == 1
-File.write(path, text.sub(/^Version: .+$/, 'Version: ' + version))
-RUBY
+[[ -z $(find "$build/openvox-server/target" -name '*-test.jar' -type f -print -quit) ]]
+project_version=$(ruby -e 'puts File.read(ARGV.fetch(0)).match(/\(defproject org.openvoxproject\/puppetserver "([^"]+)"/)[1]' "$build/openvox-server/project.clj")
 package="dist/openvox-server_${SERVER_VERSION}_all.deb"
-sudo dpkg-deb --build "$build/package" "$package"
+ruby scripts/repackage-server.rb "${packages[0]}" "$package" "$SERVER_VERSION" "$AGENT_VERSION" "$project_version-1+ubuntu26.04"
 [[ $(dpkg-deb -f "$package" Version) == "$SERVER_VERSION" ]]
 dpkg-deb -f "$package" Depends | grep -F "openvox-agent (= $AGENT_VERSION)"
-[[ -f "$build/package/opt/puppetlabs/server/data/puppetserver/java.security.mldsa" ]]
-sudo find "$build/package" -path '*/gems/openvoxserver-ca-*' -type d | grep .
-sudo find "$build/package" -path '*/gems/jruby-openssl-*/lib/jopenssl.jar' -type f | grep .
-mapfile -t jars < <(sudo find "$build/package" -name puppet-server-release.jar -type f)
+dpkg-deb --fsys-tarfile "$package" | tar -tf - > "$build/package-entries.txt"
+grep -Fx './opt/puppetlabs/server/data/puppetserver/java.security.mldsa' "$build/package-entries.txt"
+grep -E '/gems/openvoxserver-ca-[^/]+/$' "$build/package-entries.txt"
+grep -E '/gems/jruby-openssl-[^/]+/lib/jopenssl.jar$' "$build/package-entries.txt"
+mapfile -t jars < <(grep -E '(^|/)puppet-server-release.jar$' "$build/package-entries.txt")
 [[ ${#jars[@]} == 1 ]]
-jar tf "${jars[0]}" > "$build/jar-entries.txt"
+dpkg-deb --fsys-tarfile "$package" | tar -xOf - "${jars[0]}" > "$build/puppet-server-release.jar"
+jar tf "$build/puppet-server-release.jar" > "$build/jar-entries.txt"
 grep -Fx 'org/bouncycastle/jsse/provider/BouncyCastleJsseProvider.class' "$build/jar-entries.txt"
