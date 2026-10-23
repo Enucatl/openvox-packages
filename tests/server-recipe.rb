@@ -11,6 +11,13 @@ server_version = '9.1.1+homelab.42-1+ubuntu26.04'
 agent_version = '9.1.0+homelab.42-1+ubuntu26.04'
 
 Dir.mktmpdir do |root|
+  build_script = File.read(File.expand_path('../scripts/build-server.sh', __dir__))
+  container_script = build_script[/^docker run.*?^BUILD\n(?:\)"\n)?/m]
+  probe = container_script.sub(/(?<=<<'BUILD'\n).*?(?=^BUILD$)/m, "cat >/dev/null\nprintf 'continued'\n")
+  docker_stub = 'docker() { while [[ $1 != bash ]]; do shift; done; "$@"; }; build=unused; '
+  output, error, status = Open3.capture3('bash', '-c', docker_stub + probe)
+  raise "A child consumed the remaining build commands: #{error}" unless status.success? && output == 'continued'
+
   git_env = { 'GIT_CONFIG_SYSTEM' => "#{root}/gitconfig", 'GIT_CONFIG_GLOBAL' => File::NULL,
               'GIT_TEST_ASSUME_DIFFERENT_OWNER' => '1' }
   trust_command = File.read(File.expand_path('../scripts/build-server.sh', __dir__)).lines.find { |line| line.include?('safe.directory') }

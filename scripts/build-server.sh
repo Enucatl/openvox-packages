@@ -17,7 +17,7 @@ cp scripts/build-jruby-openssl.sh "$build/"
 printf '\nRUN dnf install -y java-21-openjdk-devel\n' >> "$build/openvox-server/Dockerfile"
 
 docker build -t openvox-packages-server-builder "$build/openvox-server"
-docker run --rm -i -v "$build:/build" openvox-packages-server-builder bash -euo pipefail <<'BUILD'
+docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pipefail -c "$(cat <<'BUILD'
   mkdir -p /root/.lein
   cat > /root/.lein/profiles.clj <<'CLOJURE'
 {:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}}
@@ -37,6 +37,7 @@ CLOJURE
   lein install
   COW=base-ubuntu26.04-i386.cow MOCK= GEM_SOURCE=https://rubygems.org EZBAKE_ALLOW_UNREPRODUCIBLE_BUILDS=true EZBAKE_NODEPLOY=true LEIN_PROFILES=ezbake lein with-profile user,ezbake,provided ezbake local-build
 BUILD
+)"
 mapfile -t packages < <(find "$build/openvox-server/output" -name '*.deb' -type f)
 [[ ${#packages[@]} == 1 ]]
 # Preserve EZbake's maintainer scripts and payload while assigning the archive version.
