@@ -10,7 +10,8 @@ on:
       - 'apt/native-client-*'
       - '.github/workflows/native-client.yml'
       - 'tests/native-client*'
-      - 'docs/native-client*'
+      - 'docs/**'
+      - '**/*.md'
 permissions:
   contents: read
 concurrency:
@@ -20,22 +21,70 @@ jobs:
   resolve:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    outputs:
+      source_key: ${{ steps.source_key.outputs.key }}
+      qualified: ${{ steps.qualification.outputs.cache-hit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
       - name: Read pinned sources and prepare versions once
         run: scripts/prepare.sh
+      - name: Identify source verification inputs
+        id: source_key
+        run: printf 'key=%s\n' "$(ruby scripts/source-key.rb)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: qualification
+        with:
+          path: dist/source-qualification.json
+          key: source-qualified-${{ steps.source_key.outputs.key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: coordinated-inputs
           path: dist/build-manifest.json
           if-no-files-found: error
           retention-days: 14
-  source:
+  verify:
     needs: resolve
     runs-on: ubuntu-26.04
-    timeout-minutes: 180
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: coordinated-inputs
+          path: dist
+      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83
+        with:
+          ruby-version: '3.4'
+      - run: scripts/checkout-sources.sh openvox jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl vault
+      - name: Verify archive integrity and recipes
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apt-utils
+          bash tests/archive.sh
+          bash tests/targets.sh
+          ruby tests/server-recipe.rb
+          ruby tests/source-recipe.rb
+          ruby tests/source-snapshot.rb
+          ruby tests/source-key.rb
+          ruby tests/source-qualification.rb
+          ruby tests/server-test-shards.rb
+          ruby tests/bundler-env.rb
+          ruby tests/build-manifest.rb
+          ruby tests/repackage-server.rb
+          ruby tests/release-manifest.rb
+          ruby tests/publication.rb
+          ruby tests/acceptance-diagnostics.rb
+          ruby tests/acceptance-variants.rb
+  server_build:
+    needs: resolve
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      SERVER_BUILDER_IMAGE: openvox-packages-server-builder
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -55,53 +104,130 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74
-        with:
-          lein: latest
-      - name: Check out the shared source snapshot
+      - name: Check out the package source snapshot
         run: |
-          scripts/checkout-sources.sh openvox jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl vault
+          scripts/checkout-sources.sh jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl
           ruby scripts/select-target.rb
-      - name: Verify archive integrity and recipes
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.m2/repository
+            ${{ runner.temp }}/openvox-packages-bundle
+          key: server-deps-${{ needs.resolve.outputs.source_key }}
+          restore-keys: server-deps-
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        id: builder
+        with:
+          path: /tmp/openvox-server-builder.tar
+          key: server-builder-${{ hashFiles('sources/openvox-server/Dockerfile') }}
+      - name: Load or build the server builder
         run: |
-          sudo apt-get update
-          sudo apt-get install -y apt-utils
-          bash tests/archive.sh
-          bash tests/targets.sh
-          ruby tests/server-recipe.rb
-          ruby tests/source-recipe.rb
-          ruby tests/source-snapshot.rb
-          ruby tests/bundler-env.rb
-          ruby tests/build-manifest.rb
-          ruby tests/repackage-server.rb
-          ruby tests/release-manifest.rb
-          ruby tests/publication.rb
-          ruby tests/acceptance-diagnostics.rb
-      - name: Vault source tests
-        run: scripts/test-vault.sh
+          if [[ -f /tmp/openvox-server-builder.tar ]]; then
+            docker load -i /tmp/openvox-server-builder.tar
+          else
+            docker build -t "$SERVER_BUILDER_IMAGE" sources/openvox-server
+            docker save "$SERVER_BUILDER_IMAGE" -o /tmp/openvox-server-builder.tar
+          fi
       - name: Compile and package the shared server once
         run: scripts/build-server.sh
-      - name: Source tests once
-        run: scripts/source-tests.sh
-      - name: Record shared source and server checks
+      - name: Record the server package identity
         run: |
-          ruby -rjson -rdigest <<'RUBY_CHECKS'
-          packages = Dir['dist/openvox-server_*.deb']
-          abort 'Expected one shared server package' unless packages.size == 1
-          checks = {
-            'checks' => %w[source_tests vault_source_tests server_recipe server_package_tests].to_h { |name| [name, 'passed'] },
+          ruby -rjson -rdigest <<'RUBY_BUILD'
+          package = Dir['dist/openvox-server_*.deb']
+          abort 'Expected one shared server package' unless package.size == 1
+          File.write('dist/server-build.json', JSON.pretty_generate({
             'java' => `java -version 2>&1`.strip,
-            'server' => File.basename(packages.first),
-            'server_sha256' => Digest::SHA256.file(packages.first).hexdigest
-          }
-          File.write('dist/source-checks.json', JSON.pretty_generate(checks) + "\n")
-          RUBY_CHECKS
+            'server' => File.basename(package.first),
+            'server_sha256' => Digest::SHA256.file(package.first).hexdigest
+          }) + "\n")
+          RUBY_BUILD
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: shared-server
           path: |
             dist/openvox-server_*.deb
-            dist/source-checks.json
+            dist/server-build.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: source-gems
+          path: dist/*.gem
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+  source:
+    needs: resolve
+    if: needs.resolve.outputs.qualified != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [agent, ssl]
+    uses: ./.github/workflows/source-tests.yml
+    with:
+      suite: ${{ matrix.suite }}
+      source_key: ${{ needs.resolve.outputs.source_key }}
+  server_tests:
+    needs: [resolve, server_build]
+    if: needs.resolve.outputs.qualified != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [ca, jruby, other]
+    uses: ./.github/workflows/source-tests.yml
+    with:
+      suite: ${{ matrix.suite }}
+      source_key: ${{ needs.resolve.outputs.source_key }}
+  qualify:
+    needs: [resolve, verify, server_build, source, server_tests]
+    if: >-
+      always() && needs.resolve.result == 'success' && needs.verify.result == 'success' &&
+      needs.server_build.result == 'success' &&
+      (needs.resolve.outputs.qualified == 'true' ||
+      (needs.source.result == 'success' && needs.server_tests.result == 'success'))
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: shared-server
+          path: dist
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: needs.resolve.outputs.qualified == 'true'
+        with:
+          path: dist/source-qualification.json
+          key: source-qualified-${{ needs.resolve.outputs.source_key }}
+          fail-on-cache-miss: true
+      - name: Record successful source verification
+        env:
+          SOURCE_KEY: ${{ needs.resolve.outputs.source_key }}
+          REUSED: ${{ needs.resolve.outputs.qualified }}
+        run: |
+          ruby -rjson <<'RUBY_CHECKS'
+          key = ENV.fetch('SOURCE_KEY')
+          reused = ENV['REUSED'] == 'true'
+          proof = if reused
+                    JSON.parse(File.read('dist/source-qualification.json'))
+                  else
+                    { 'key' => key, 'run' => ENV.fetch('GITHUB_RUN_ID') }
+                  end
+          abort 'Mismatched source verification' unless proof.fetch('key') == key
+          File.write('dist/source-qualification.json', JSON.pretty_generate(proof) + "\n")
+          checks = JSON.parse(File.read('dist/server-build.json'))
+          checks['checks'] = %w[source_tests vault_source_tests server_recipe server_package_tests].to_h { |name| [name, 'passed'] }
+          checks['source_verification'] = proof.merge('reused' => reused)
+          File.write('dist/source-checks.json', JSON.pretty_generate(checks) + "\n")
+          RUBY_CHECKS
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: needs.resolve.outputs.qualified != 'true'
+        with:
+          path: dist/source-qualification.json
+          key: source-qualified-${{ needs.resolve.outputs.source_key }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: source-checks
+          path: dist/source-checks.json
           if-no-files-found: error
           retention-days: 14
   build:
@@ -111,7 +237,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ubuntu26.04, ubuntu24.04, debian13]
+        target: [ubuntu26.04, debian13]
     env:
       TARGET: ${{ matrix.target }}
     steps:
@@ -162,7 +288,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   publish:
-    needs: [source, build]
+    needs: [qualify, build]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -184,6 +310,10 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: shared-server
+          path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: source-checks
           path: dist
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
@@ -217,7 +347,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ubuntu26.04, ubuntu24.04, debian13]
+        target: [ubuntu26.04, debian13]
     env:
       TARGET: ${{ matrix.target }}
       CANDIDATE_URL: ${{ needs.publish.outputs.candidate_url }}
@@ -320,15 +450,39 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Promote only after all three targets pass
+      - name: Promote only after both targets pass
         run: |
           printf '\nAcceptance: passed\n' >> RELEASE-NOTES.md
           gh release edit "$CANDIDATE_TAG" --latest --notes-file RELEASE-NOTES.md
+  prepare_image:
+    needs: publish
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      CANDIDATE_TAG: ${{ needs.publish.outputs.candidate_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and test the candidate image
+        run: bash scripts/server-image.sh "$CANDIDATE_TAG" --prepare
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: server-image-prepared
+          path: |
+            dist/server-image.tar
+            dist/server-image-prepared.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
   server_image:
-    needs: [publish, promote]
+    needs: [publish, promote, prepare_image]
     permissions:
       contents: write
       packages: write
     uses: ./.github/workflows/server-image.yml
     with:
       release: ${{ needs.publish.outputs.candidate_tag }}
+      prepared: true

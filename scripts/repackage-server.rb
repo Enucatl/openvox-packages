@@ -4,7 +4,7 @@ require 'fileutils'
 
 abort 'Usage: repackage-server.rb TEMPLATE OUTPUT SERVER_VERSION AGENT_VERSION' unless ARGV.size == 4
 template, output, server, agent = ARGV
-pattern = /\A[0-9][0-9A-Za-z.+:~]*\+homelab\.([0-9]+)-1\+(ubuntu26\.04|ubuntu24\.04|debian13)\z/
+pattern = /\A[0-9][0-9A-Za-z.+:~]*\+homelab\.([0-9]+)-1\+(ubuntu26\.04|debian13)\z/
 server_match, agent_match = [server, agent].map { |version| pattern.match(version) }
 abort 'Expected coordinated package versions' unless server_match && agent_match && server_match.captures == agent_match.captures
 

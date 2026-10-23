@@ -18,8 +18,12 @@ bash scripts/build-jruby-openssl.sh "$build/jruby-openssl" "$root/dist/jruby-ope
 (cd "$build/openvoxserver-ca" && gem build openvoxserver-ca.gemspec --output "$root/dist/openvoxserver-ca.gem")
 cp dist/jruby-openssl.gem dist/openvoxserver-ca.gem "$build/openvox-server/resources/ext/build-scripts/"
 
-docker build -t openvox-packages-server-builder "$build/openvox-server"
-docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pipefail -c "$(cat <<'BUILD'
+if [[ -z ${SERVER_BUILDER_IMAGE:-} ]]; then
+  docker build -t openvox-packages-server-builder "$build/openvox-server"
+  SERVER_BUILDER_IMAGE=openvox-packages-server-builder
+fi
+mkdir -p "$HOME/.m2"
+docker run --rm --userns=host -v "$build:/build" -v "$HOME/.m2:/root/.m2" "$SERVER_BUILDER_IMAGE" bash -euo pipefail -c "$(cat <<'BUILD'
   mkdir -p /root/.lein
   cat > /root/.lein/profiles.clj <<'CLOJURE'
 {:user {:mirrors {"central" {:name "central" :url "https://repo.maven.apache.org/maven2/"}}}}

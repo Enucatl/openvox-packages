@@ -25,7 +25,6 @@ All builds target **amd64**.
 | System | Agent and server packages | Server image | Native FreeIPA client fixes |
 | --- | --- | --- | --- |
 | Ubuntu 26.04 | Yes | Yes | Yes |
-| Ubuntu 24.04 | Yes | No | No |
 | Debian 13, including Proxmox VE 9 hosts | Yes | No | Yes |
 
 The FreeIPA client fixes are separate packages for curl, libcurl, and
@@ -65,14 +64,13 @@ Do not disable signature or hash verification.
 
 ### 3. Select the host system
 
-The archive contains packages for all three systems. Install the matching
+The archive contains packages for both systems. Install the matching
 preferences file **before** the first APT update. This file prevents APT from
 selecting a package for another system.
 
 | Host system | Preferences file |
 | --- | --- |
 | Ubuntu 26.04 | `apt/ubuntu26.04.pref` |
-| Ubuntu 24.04 | `apt/ubuntu24.04.pref` |
 | Debian 13 / Proxmox VE 9 | `apt/debian13.pref` |
 
 For example, on Debian 13:
@@ -221,13 +219,21 @@ rejects staged source pointers that differ from the coordinator commit.
 
 Push to coordinator `main`, or start the **Coordinated packages** workflow in
 GitHub Actions. Changes limited to native client files use their separate workflow.
+Documentation changes do not start a package release.
 
 1. Read the committed source pins and assign a build number.
-2. Build the forked gems once. Use the same artifacts in the server package and
-   source tests. Build the server once and build an agent for each system.
+2. Build the server and agents in parallel with source checks. Build the forked
+   gems once. Run each server source test in one of three parallel groups.
 3. Sign and publish a candidate APT archive. Keep `latest` unchanged.
-4. Install and test the candidate on all three systems. Promote it only if all pass.
-5. Build and publish the server image from the accepted package pair.
+4. Install and test the candidate on both systems. Build and test the server image
+   at the same time. Promote the packages only if package acceptance passes.
+5. Publish the tested image after promotion.
+
+Successful source checks can be reused for the same source commits, build/test
+recipes, and runner image on the same UTC day. Daily expiry accounts for unlocked
+dependencies. The manifest records the original verification run and reuse.
+Every release still builds and checks its packages and server image. Ubuntu runs
+all four server lifecycles; Debian runs the complete Vault ML-DSA agent lifecycle.
 
 The server fork contains the gem installation recipe. The coordinator supplies
 build versions and exact dependencies. JDK 21 builds the JRuby OpenSSL extension;

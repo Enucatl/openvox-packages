@@ -91,16 +91,17 @@ verification/reference rather than the production server deployment model.
 Use the public distribution repository
 `Enucatl/openvox-packages`. Publish one coordinated GitHub Release per successful
 build. Each release contains a complete, signed, flat APT repository for
-**Ubuntu 26.04 (resolute), Ubuntu 24.04 (noble) and Debian 13 (trixie), amd64**.
+**Ubuntu 26.04 (resolute) and Debian 13 (trixie), amd64**.
 Include architecture-independent server packages paired to each target's exact
 agent. No RPMs or additional architectures are built.
 
 Resolve the five source heads once. Run shared source suites and compile the
-server once, concurrently with three parallel native-agent builds. Reuse the
+server once, concurrently with two parallel native-agent builds. Reuse the
 server's compressed payload unchanged; repackage only its version and exact
 agent dependency. After those jobs pass, assemble per-target provenance, sign
 one flat archive, then run anonymous APT and installed RSA/ML-DSA/Vault acceptance
-in parallel on all three OSes. Promote only after all three pass.
+in parallel on both OSes. Promote only after both pass. Ubuntu 26.04 exercises
+all CA variants; Debian retains the imported Vault ML-DSA agent lifecycle.
 
 Clients must install the matching `apt/<target>.pref` file before using the
 shared archive. It allows `*+<target>` versions and assigns every other version

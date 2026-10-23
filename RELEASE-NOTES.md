@@ -1,7 +1,7 @@
-Coordinated ML-DSA OpenVox build for Ubuntu 26.04, Ubuntu 24.04 and Debian 13 amd64.
+Coordinated ML-DSA OpenVox build for Ubuntu 26.04 and Debian 13 amd64.
 
 A published candidate becomes latest only after anonymous signed APT installation
-and package-installed RSA/ML-DSA/Vault lifecycle tests pass on all three targets. Use the latest
+and installed-package lifecycle tests pass on both targets. Use the latest
 channel for promoted builds. The build manifest records source SHAs and inputs.
 
 Package rollback requires the matching server/agent pair. It does not roll back

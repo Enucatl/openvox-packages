@@ -1,0 +1,57 @@
+name: Source tests
+on:
+  workflow_call:
+    inputs:
+      suite:
+        type: string
+        required: true
+      source_key:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      SUITE: ${{ inputs.suite }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83
+        with:
+          ruby-version: '3.4'
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74
+        with:
+          lein: latest
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: coordinated-inputs
+          path: dist
+      - name: Check out the source snapshot
+        run: scripts/checkout-sources.sh openvox jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl vault
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: |
+            ~/.m2/repository
+            ${{ runner.temp }}/openvox-packages-bundle
+          key: source-deps-${{ inputs.suite }}-${{ inputs.source_key }}
+          restore-keys: source-deps-${{ inputs.suite }}-
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.suite != 'agent' && inputs.suite != 'ssl'
+        with:
+          name: source-gems
+          path: dist
+      - name: Run the selected source suite
+        run: |
+          case "$SUITE" in
+            agent|ssl) scripts/source-tests.sh "$SUITE" ;;
+            ca|jruby|other) scripts/source-tests.sh server "$SUITE" ;;
+            *) exit 2 ;;
+          esac

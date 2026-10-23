@@ -67,7 +67,7 @@ Dir.mktmpdir do |root|
     template = build_template.call(control, compression)
     original_control = members(capture('dpkg-deb', '--ctrl-tarfile', template))
     data_member = capture('ar', 't', template).lines.map(&:strip).find { |name| name.start_with?('data.tar') }
-    %w[ubuntu24.04 debian13].each do |target|
+    %w[debian13].each do |target|
       target_server, target_agent = [server, agent].map { |version| version.sub('ubuntu26.04', target) }
       output = "#{root}/#{target}-#{compression}.deb"
       capture(RbConfig.ruby, script, template, output, target_server, target_agent)

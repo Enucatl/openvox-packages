@@ -5,7 +5,7 @@ require 'open3'
 require 'rbconfig'
 
 root_path = File.expand_path('..', __dir__)
-targets = %w[ubuntu26.04 ubuntu24.04 debian13]
+targets = %w[ubuntu26.04 debian13]
 snapshot = lambda do |build|
   per_target = targets.to_h do |target|
     [target, { 'sources' => {

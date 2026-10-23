@@ -31,7 +31,7 @@ Dir.mktmpdir do |dir|
   RUBY
   FileUtils.chmod(0o755, "#{dir}/bin/docker")
   env = { 'PATH' => "#{dir}/bin:#{ENV.fetch('PATH')}", 'FIXTURE_CONTAINER' => "#{dir}/container", 'FIXTURE_DOCKER_ARGS' => "#{dir}/docker-args", 'AGENT_VERSION' => 'fixture', 'SERVER_VERSION' => 'fixture' }
-  %w[ubuntu26.04 ubuntu24.04 debian13].each do |target|
+  %w[ubuntu26.04 debian13].each do |target|
     output, status = Open3.capture2e(env.merge('TARGET' => target), 'bash', "#{dir}/scripts/acceptance.sh", 'https://fixture.invalid', "#{dir}/key.asc")
     raise "Build failure was hidden: #{output}" unless status.exitstatus == 42 && output.include?('build acceptance image and install packages') && output.include?('candidate repository unavailable')
     args = File.readlines("#{dir}/docker-args", chomp: true)

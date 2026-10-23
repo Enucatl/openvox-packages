@@ -28,10 +28,12 @@ echo 'Installed fork Debian packages; no Ruby library or server JAR overlays.' >
 { dpkg-query -W openvox-agent openvox-server openjdk-25-jre-headless; java -version; vault version; sha256sum server.jar /usr/local/bin/vault; } > versions.txt 2>&1
 stage='installed JRuby OpenSSL'; log=jruby-openssl.log
 /opt/puppetlabs/bin/puppetserver ruby /test/jruby-openssl.rb > "$log" 2>&1
-stage='generate RSA fixtures'; log=generate.log
-sh generate.sh > "$log" 2>&1
-stage='generate RSA CRLs'; log=crls.log
-sh crls.sh > "$log" 2>&1
+if [ "$TARGET" = ubuntu26.04 ]; then
+  stage='generate RSA fixtures'; log=generate.log
+  sh generate.sh > "$log" 2>&1
+  stage='generate RSA CRLs'; log=crls.log
+  sh crls.sh > "$log" 2>&1
+fi
 stage='Vault hierarchy and certificate authentication'; log=vault-setup.log
 VAULT_POC_DIR=/test/vault-state KEEP_VAULT=true /opt/puppetlabs/puppet/bin/ruby /test/vault-poc.rb > vault-setup.log 2>&1
 stage='capture installed configuration'; log=versions.txt

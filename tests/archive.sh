@@ -29,6 +29,7 @@ CONTROL
 printf 'archive test payload\n' > "$work/package/payload"
 dpkg-deb --build "$work/package" "$work/dist/selfcheck.deb" >/dev/null
 mkdir -p "$work/target-package/DEBIAN"
+# Keep a retired-target package in the index to verify that preferences reject it.
 for target in ubuntu26.04 ubuntu24.04 debian13; do
   for build in 1 2; do
     version="9.0.0-$build+$target"
@@ -84,7 +85,7 @@ for kind in agent server; do
   grep -q 'Candidate: 9.0.0-2+ubuntu26.04' "$work/policy"
 done
 printf 'PASS: existing unpinned clients select Ubuntu 26.04\n'
-for target in ubuntu26.04 ubuntu24.04 debian13; do
+for target in ubuntu26.04 debian13; do
   cp "$root/apt/$target.pref" "$work/apt/preferences"
   for kind in agent server; do
     apt-cache "${apt_options[@]}" policy "openvox-$kind" > "$work/policy"

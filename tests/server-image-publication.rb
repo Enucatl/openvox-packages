@@ -8,7 +8,7 @@ Dir.mktmpdir do |root|
   FileUtils.cp(File.expand_path('../scripts/server-image.sh', __dir__), "#{root}/scripts/")
   File.write("#{root}/docker/server/Dockerfile", "FROM fixture\n")
   File.write("#{root}/openvox-archive-keyring.asc", 'fixture-public-key')
-  File.write("#{root}/tests/server-image.sh", "#!/bin/sh\nexit 0\n")
+  File.write("#{root}/tests/server-image.sh", "#!/bin/sh\nprintf '%s\\n' \"$1\" >> \"$TEST_CALLS\"\nexit \"${TEST_STATUS:-0}\"\n")
   FileUtils.chmod(0755, "#{root}/tests/server-image.sh")
   manifest = {
     build: '13001',
@@ -42,7 +42,11 @@ Dir.mktmpdir do |root|
     #!/usr/bin/env ruby
     require 'json'
     File.open(ENV.fetch('DOCKER_CALLS'), 'a') { |file| file.puts JSON.generate(ARGV) }
-    puts "ghcr.io/enucatl/openvox-server@sha256:#{'a' * 64}" if ARGV.first(2) == ['image', 'inspect']
+    if ARGV.first(2) == ['image', 'inspect']
+      puts ARGV[3] == '{{.Id}}' ? ENV.fetch('IMAGE_ID', "sha256:#{'b' * 64}") : "ghcr.io/enucatl/openvox-server@sha256:#{'a' * 64}"
+    elsif ARGV.first == 'save'
+      File.write(ARGV[ARGV.index('--output') + 1], 'tested image fixture')
+    end
   RUBY
   FileUtils.chmod(0755, Dir["#{root}/bin/*"])
   release = { tagName: 'resolute-13001', body: "Package checks\nAcceptance: passed\n", isDraft: false, isPrerelease: false }
@@ -50,7 +54,8 @@ Dir.mktmpdir do |root|
     'PATH' => "#{root}/bin:#{ENV.fetch('PATH')}", 'GH_REPO' => 'Enucatl/openvox-packages',
     'GITHUB_SHA' => 'image-source', 'GITHUB_STEP_SUMMARY' => "#{root}/summary",
     'RELEASE_FIXTURE' => "#{root}/release.json", 'MANIFEST_FIXTURE' => "#{root}/manifest.json",
-    'UPLOAD_FIXTURE' => "#{root}/uploaded.json", 'DOCKER_CALLS' => "#{root}/docker.jsonl"
+    'UPLOAD_FIXTURE' => "#{root}/uploaded.json", 'DOCKER_CALLS' => "#{root}/docker.jsonl",
+    'TEST_CALLS' => "#{root}/tests.log"
   }
   [release.merge(body: 'Acceptance: pending'), release.merge(isDraft: true),
    release.merge(isPrerelease: true), release.merge(tagName: 'noble-13001')].each do |rejected|
@@ -89,5 +94,46 @@ Dir.mktmpdir do |root|
   raise output unless status.success?
   calls = File.readlines(env.fetch('DOCKER_CALLS')).map { |line| JSON.parse(line) }
   raise 'An older release moved an alias backward' unless calls.select { |call| call.first == 'push' }.map(&:last) == [expected_tags.first]
+
+  File.write(env.fetch('RELEASE_FIXTURE'), JSON.generate(release.merge(body: 'Acceptance: pending')))
+  FileUtils.rm_f([env.fetch('DOCKER_CALLS'), env.fetch('TEST_CALLS')])
+  output, status = Open3.capture2e(env, 'bash', "#{root}/scripts/server-image.sh", 'resolute-13001', '--prepare')
+  raise output unless status.success?
+  calls = File.readlines(env.fetch('DOCKER_CALLS')).map { |line| JSON.parse(line) }
+  raise 'Preparation did not build and save the tested image' unless calls.any? { |call| call.first == 'build' } && calls.any? { |call| call.first == 'save' }
+  raise 'Preparation published an unaccepted image' if calls.any? { |call| call.first == 'push' }
+  raise 'Preparation skipped image tests' unless File.readlines(env.fetch('TEST_CALLS')).size == 1
+  prepared_path = "#{root}/dist/server-image-prepared.json"
+  archive_path = "#{root}/dist/server-image.tar"
+  prepared = File.read(prepared_path)
+  archive = File.read(archive_path)
+  FileUtils.rm_f(env.fetch('DOCKER_CALLS'))
+  _, status = Open3.capture2e(env, 'bash', "#{root}/scripts/server-image.sh", 'resolute-13001', '--publish-prepared')
+  raise 'Published a prepared image before package acceptance' if status.success?
+  raise 'Loaded an unaccepted prepared image' if File.exist?(env.fetch('DOCKER_CALLS'))
+  File.write(env.fetch('RELEASE_FIXTURE'), JSON.generate(release))
+  %w[archive packages revision].each do |change|
+    File.write(archive_path, change == 'archive' ? 'changed image' : archive)
+    metadata = JSON.parse(prepared)
+    metadata['packages']['build'] = '14001' if change == 'packages'
+    metadata['revision'] = 'other-revision' if change == 'revision'
+    File.write(prepared_path, JSON.generate(metadata))
+    _, status = Open3.capture2e(env, 'bash', "#{root}/scripts/server-image.sh", 'resolute-13001', '--publish-prepared')
+    raise "Published changed prepared #{change}" if status.success?
+    raise "Loaded changed prepared #{change}" if File.exist?(env.fetch('DOCKER_CALLS'))
+  end
+  File.write(prepared_path, prepared)
+  _, status = Open3.capture2e(env.merge('IMAGE_ID' => 'wrong-image-id'), 'bash', "#{root}/scripts/server-image.sh", 'resolute-13001', '--publish-prepared')
+  raise 'Published a different loaded image' if status.success?
+  calls = File.readlines(env.fetch('DOCKER_CALLS')).map { |line| JSON.parse(line) }
+  raise 'Pushed an image with a different ID' if calls.any? { |call| call.first == 'push' }
+  FileUtils.rm_f(env.fetch('DOCKER_CALLS'))
+  output, status = Open3.capture2e(env, 'bash', "#{root}/scripts/server-image.sh", 'resolute-13001', '--publish-prepared')
+  raise output unless status.success?
+  calls = File.readlines(env.fetch('DOCKER_CALLS')).map { |line| JSON.parse(line) }
+  raise 'Prepared publication rebuilt the image' if calls.any? { |call| call.first == 'build' }
+  raise 'Prepared publication did not load the tested image' unless calls.any? { |call| call.first == 'load' }
+  raise 'Prepared publication repeated image tests' unless File.readlines(env.fetch('TEST_CALLS')).size == 1
+  raise 'Prepared publication lost image tags' unless calls.select { |call| call.first == 'push' }.map(&:last) == expected_tags
 end
 puts 'Server image publication checks passed'

@@ -41,7 +41,7 @@ if [[ -n ${1:-} || -n ${2:-} ]]; then
   apt-get install -y --allow-downgrades "openvox-agent=$1" "openvox-server=$2"
   [[ $(dpkg-query -W -f='${Version}' openvox-agent) == "$1" ]]
   [[ $(dpkg-query -W -f='${Version}' openvox-server) == "$2" ]]
-  apt-get upgrade -y
+  apt-get install -y --only-upgrade "openvox-agent=$agent" "openvox-server=$server"
   [[ $(dpkg-query -W -f='${Version}' openvox-agent) == "$agent" ]]
   [[ $(dpkg-query -W -f='${Version}' openvox-server) == "$server" ]]
 fi

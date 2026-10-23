@@ -11,6 +11,9 @@ on:
       release:
         type: string
         required: true
+      prepared:
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -35,5 +38,15 @@ jobs:
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Verify publication guards
         run: ruby tests/server-image-publication.rb
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        if: inputs.prepared == true
+        with:
+          name: server-image-prepared
+          path: dist
       - name: Build, check and publish fork server image
-        run: bash scripts/server-image.sh "$PACKAGE_RELEASE" --push
+        env:
+          PREPARED: ${{ inputs.prepared }}
+        run: |
+          mode=--push
+          if [[ $PREPARED == true ]]; then mode=--publish-prepared; fi
+          bash scripts/server-image.sh "$PACKAGE_RELEASE" "$mode"

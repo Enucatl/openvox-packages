@@ -4,6 +4,7 @@ require 'json'
 require 'fileutils'
 require 'timeout'
 require_relative 'vault-integration'
+require_relative 'lifecycle-variants'
 
 puts [RUBY_DESCRIPTION, OpenSSL::VERSION, OpenSSL::OPENSSL_LIBRARY_VERSION]
 RESULTS = []
@@ -79,12 +80,7 @@ def cert_check(label, certificate, algorithm)
 end
 
 check('vault/exact_agent_role', configure_enrolled_agent_role.first == 204)
-[
-  ['RSA', 'rsa', 'RSA', 'RSA-lifecycle'],
-  ['ML-DSA-44', 'mldsa44', 'vault-state', 'ML-DSA-44-lifecycle'],
-  ['RSA', 'rsa', nil, 'RSA-setup-lifecycle'],
-  ['ML-DSA-44', 'mldsa44', nil, 'ML-DSA-44-setup-lifecycle']
-].each do |algorithm, key_type, fixtures, label|
+lifecycle_variants(ENV.fetch('TARGET')).each do |algorithm, key_type, fixtures, label|
   vault = fixtures == 'vault-state'
   FileUtils.mkdir_p(label)
   environment = '/test/code/environments/production'

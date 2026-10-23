@@ -6,10 +6,6 @@ case "$TARGET" in
     PLATFORM=ubuntu-26.04-amd64
     BASE_IMAGE=ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944
     ;;
-  ubuntu24.04)
-    PLATFORM=ubuntu-24.04-amd64
-    BASE_IMAGE=ubuntu:24.04@sha256:a2d43bffc46670d7108bb3c0468c67c5557c4c92e83e1e34cbff1322ad1b94dc
-    ;;
   debian13)
     PLATFORM=debian-13-amd64
     BASE_IMAGE=debian:13@sha256:bcf83fd8af414eda0c0a99d25a4e61dedd88e7aac7f7bc519d04555ff0c40ec5

@@ -36,7 +36,7 @@ Dir.mktmpdir do |root|
       FileUtils.cp("#{sources}/#{path}", "#{root}/#{path}")
     end
   end
-  versions_by_target = %w[ubuntu26.04 ubuntu24.04 debian13].map do |target|
+  versions_by_target = %w[ubuntu26.04 debian13].map do |target|
     [server_version.sub('ubuntu26.04', target), agent_version.sub('ubuntu26.04', target)]
   end
   [[], *versions_by_target].each do |versions|

@@ -1,7 +1,7 @@
 require 'json'
 
 target = ENV.fetch('TARGET', 'ubuntu26.04')
-abort 'Unsupported package target' unless %w[ubuntu26.04 ubuntu24.04 debian13].include?(target)
+abort 'Unsupported package target' unless %w[ubuntu26.04 debian13].include?(target)
 manifest = JSON.parse(File.read('dist/build-manifest.json'))
 manifest['target'] = target
 %w[openvox openvox-server].each do |repo|

@@ -4,7 +4,7 @@ abort 'Usage: configure-build.rb SOURCES [SERVER_VERSION AGENT_VERSION]' unless 
 root, version, agent = ARGV
 suffix = 'source'
 if version
-  pattern = /\A[0-9][0-9A-Za-z.+:~]*\+homelab\.([0-9]+)-1\+(ubuntu26\.04|ubuntu24\.04|debian13)\z/
+  pattern = /\A[0-9][0-9A-Za-z.+:~]*\+homelab\.([0-9]+)-1\+(ubuntu26\.04|debian13)\z/
   server_build = pattern.match(version)
   agent_build = pattern.match(agent)
   abort 'Expected coordinated Debian package versions' unless server_build && agent_build && server_build.captures == agent_build.captures

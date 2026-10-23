@@ -26,7 +26,7 @@ export PATH="$build/bin:$PATH" BUNDLE_LOG="$build/bundle.log"
 unset TARGET
 source "$root/scripts/target.sh"
 [[ $TARGET == ubuntu26.04 && $PLATFORM == ubuntu-26.04-amd64 ]]
-for TARGET in ubuntu26.04 ubuntu24.04 debian13; do
+for TARGET in ubuntu26.04 debian13; do
   source "$root/scripts/target.sh"
   [[ $BASE_IMAGE == *@sha256:* && $UPSTREAM_AGENT_VERSION == "9.1.0-1+$TARGET" ]]
   [[ $UPSTREAM_RELEASE == "openvox9-release-$TARGET.deb" ]]
@@ -38,13 +38,15 @@ for TARGET in ubuntu26.04 ubuntu24.04 debian13; do
 done
 
 : > "$BUNDLE_LOG"
-if TARGET=ubuntu24.04 AGENT_VERSION=9.1.0+homelab.42-1+ubuntu26.04 bash "$build/scripts/build-agent.sh" 2>/dev/null; then
+if TARGET=debian13 AGENT_VERSION=9.1.0+homelab.42-1+ubuntu26.04 bash "$build/scripts/build-agent.sh" 2>/dev/null; then
   echo 'Accepted an agent version for another target' >&2
   exit 1
 fi
 [[ ! -s $BUNDLE_LOG ]]
-if TARGET=debian12 bash -c 'source "$1"' bash "$root/scripts/target.sh" 2>/dev/null; then
-  echo 'Accepted an unsupported target' >&2
-  exit 1
-fi
+for TARGET in ubuntu24.04 debian12; do
+  if TARGET=$TARGET bash -c 'source "$1"' bash "$root/scripts/target.sh" 2>/dev/null; then
+    echo 'Accepted an unsupported target' >&2
+    exit 1
+  fi
+done
 echo 'Package target and agent build checks passed'

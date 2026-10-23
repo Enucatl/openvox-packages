@@ -3,12 +3,13 @@ require 'digest'
 
 manifest = JSON.parse(File.read('dist/build-manifest.json'))
 shared = JSON.parse(File.read('dist/source-checks.json'))
+manifest['source_verification'] = shared.fetch('source_verification') if shared.key?('source_verification')
 abort 'Shared source checks did not pass' unless %w[source_tests vault_source_tests server_recipe server_package_tests].all? { |check| shared.fetch('checks').fetch(check) == 'passed' } && shared.fetch('checks').values.all? { |value| value == 'passed' }
 template_version = manifest.fetch('sources').fetch('openvox-server').fetch('package_version')
 template = "openvox-server_#{template_version}_all.deb"
 abort 'Mismatched shared server package' unless shared.fetch('server') == template
 abort 'Shared server package changed' unless Digest::SHA256.file("dist/#{template}").hexdigest == shared.fetch('server_sha256')
-manifest['targets'] = %w[ubuntu26.04 ubuntu24.04 debian13].to_h do |target|
+manifest['targets'] = %w[ubuntu26.04 debian13].to_h do |target|
   tested = JSON.parse(File.read("dist/build-manifest-#{target}.json"))
   abort 'Mismatched target build identity' unless tested.fetch('target') == target && %w[build run attempt].all? { |key| tested.fetch(key) == manifest.fetch(key) }
   abort 'Mismatched source snapshot' unless manifest.fetch('sources').all? { |repo, source| tested.fetch('sources').fetch(repo).fetch('sha') == source.fetch('sha') }

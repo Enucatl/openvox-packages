@@ -6,7 +6,7 @@ require 'open3'
 require 'rbconfig'
 
 scripts = File.expand_path('../scripts', __dir__)
-targets = %w[ubuntu26.04 ubuntu24.04 debian13]
+targets = %w[ubuntu26.04 debian13]
 Dir.mktmpdir do |root|
   FileUtils.mkdir_p("#{root}/dist")
   FileUtils.cp_r(scripts, "#{root}/scripts")
@@ -44,7 +44,7 @@ Dir.mktmpdir do |root|
   invalid = Marshal.load(Marshal.dump(source))
   invalid['sources']['openvox']['package_version'] = '9.1.0+homelab.42001-1+debian13'
   write.call('build-manifest', invalid)
-  _, _, status = run.call('select-target', 'TARGET' => 'ubuntu24.04', 'GITHUB_ENV' => "#{root}/github-env")
+  _, _, status = run.call('select-target', 'TARGET' => 'debian13', 'GITHUB_ENV' => "#{root}/github-env")
   raise 'Accepted a noncanonical source snapshot' if status.success?
   write.call('build-manifest', source)
 
@@ -62,6 +62,7 @@ Dir.mktmpdir do |root|
   _, error, status = Open3.capture3('dpkg-deb', '--build', "#{root}/server", "#{root}/dist/#{template_name}")
   raise error unless status.success?
   shared = {
+    'source_verification' => { 'key' => 'b' * 64, 'run' => '42', 'reused' => true },
     'checks' => %w[source_tests vault_source_tests server_recipe server_package_tests].to_h { |check| [check, 'passed'] },
     'java' => 'openjdk 25 fixture',
     'server' => template_name,
@@ -76,6 +77,7 @@ Dir.mktmpdir do |root|
   _, error, status = run.call('assemble-release')
   raise error unless status.success?
   assembled = read.call('build-manifest')
+  raise 'Lost source verification provenance' unless assembled.fetch('source_verification') == shared.fetch('source_verification')
   raise 'Missing coordinated targets' unless assembled.fetch('targets').keys == targets
   raise 'Legacy source fields changed' unless assembled.fetch('sources') == source.fetch('sources')
   raise 'Legacy checks missing' unless assembled.fetch('checks') == shared.fetch('checks').merge('agent_package_tests' => 'passed')
@@ -100,9 +102,9 @@ Dir.mktmpdir do |root|
     'agent checksum' => ->(manifest) { manifest['sha256'].transform_values! { '0' * 64 } }
   }.each do |name, mutate|
     reset.call
-    tested = read.call('build-manifest-ubuntu24.04')
+    tested = read.call('build-manifest-debian13')
     mutate.call(tested)
-    write.call('build-manifest-ubuntu24.04', tested)
+    write.call('build-manifest-debian13', tested)
     _, _, status = run.call('assemble-release')
     raise "Accepted mismatched #{name}" if status.success?
     raise 'Published a partially assembled manifest' unless read.call('build-manifest') == source
