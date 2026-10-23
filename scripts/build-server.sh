@@ -6,6 +6,7 @@ source scripts/target.sh
 : "${SERVER_VERSION:?full Debian version required}"
 : "${AGENT_VERSION:?full Debian version required}"
 root=$PWD
+mkdir -p dist
 build=$(mktemp -d "$root/.server-build.XXXXXX")
 trap 'sudo rm -rf "$build"' EXIT
 for repo in openvox-server jvm-ssl-utils openvoxserver-ca jruby-openssl; do
@@ -13,8 +14,9 @@ for repo in openvox-server jvm-ssl-utils openvoxserver-ca jruby-openssl; do
 done
 # EZbake requires a clean Git tree; all recipe changes stay in disposable clones.
 ruby scripts/configure-build.rb "$build" "$SERVER_VERSION" "$AGENT_VERSION"
-cp scripts/build-jruby-openssl.sh "$build/"
-printf '\nRUN dnf install -y java-21-openjdk-devel\n' >> "$build/openvox-server/Dockerfile"
+bash scripts/build-jruby-openssl.sh "$build/jruby-openssl" "$root/dist/jruby-openssl.gem"
+(cd "$build/openvoxserver-ca" && gem build openvoxserver-ca.gemspec --output "$root/dist/openvoxserver-ca.gem")
+cp dist/jruby-openssl.gem dist/openvoxserver-ca.gem "$build/openvox-server/resources/ext/build-scripts/"
 
 docker build -t openvox-packages-server-builder "$build/openvox-server"
 docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pipefail -c "$(cat <<'BUILD'
@@ -24,13 +26,10 @@ docker run --rm -v "$build:/build" openvox-packages-server-builder bash -euo pip
 CLOJURE
   git config --system --add safe.directory "*"
   gem install bundler --no-document
-  JAVA_HOME_21_X64=/usr/lib/jvm/java-21-openjdk bash /build/build-jruby-openssl.sh /build/jruby-openssl /build/openvox-server/resources/ext/build-scripts/jruby-openssl.gem
-  cd /build/openvoxserver-ca
-  gem build openvoxserver-ca.gemspec --output /build/openvox-server/resources/ext/build-scripts/openvoxserver-ca.gem
   cd /build/jvm-ssl-utils
   lein install
   cd /build/openvox-server
-  git add Dockerfile project.clj resources/ext
+  git add project.clj resources/ext
   git -c user.name="OpenVox Packages" -c user.email="packages@localhost" commit -m "Apply coordinated package recipe"
   bundle config set without test
   bundle install
@@ -48,7 +47,6 @@ text = File.read(path)
 raise 'Missing or duplicate package version' unless text.scan(/^Version: .+$/).size == 1
 File.write(path, text.sub(/^Version: .+$/, 'Version: ' + version))
 RUBY
-mkdir -p dist
 package="dist/openvox-server_${SERVER_VERSION}_all.deb"
 sudo dpkg-deb --build "$build/package" "$package"
 [[ $(dpkg-deb -f "$package" Version) == "$SERVER_VERSION" ]]

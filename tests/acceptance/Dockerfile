@@ -20,10 +20,10 @@ RUN apt-get update -o APT::Update::Error-Mode=any && apt-get install -y --no-ins
 COPY apt-check.sh /tmp/apt-check.sh
 RUN TARGET="$TARGET" AGENT_VERSION="$AGENT_VERSION" SERVER_VERSION="$SERVER_VERSION" /tmp/apt-check.sh "$PREVIOUS_AGENT" "$PREVIOUS_SERVER"
 COPY . /test/
-RUN curl -fsSLo /tmp/vault.zip https://releases.hashicorp.com/vault/2.2.0/vault_2.2.0_linux_amd64.zip && echo '05d78b0ac842ca7c522fc297df91527cd43c15420c4c5c0a969d48a7b0ff7b6d  /tmp/vault.zip' | sha256sum -c - && cd /usr/local/bin && jar xf /tmp/vault.zip vault && chmod 755 vault && rm /tmp/vault.zip
+COPY --from=hashicorp/vault:2.2.0@sha256:e0acd3c681bdf57f002d7214e5d050b876e1704678005c6b0406dd96a65be919 /bin/vault /usr/local/bin/vault
 COPY vault-module/ /test/code/environments/production/modules/vault_secrets/lib/
 WORKDIR /test
-RUN chmod 755 /usr/local/bin/vault && ln -s /opt/puppetlabs/server/apps/puppetserver/puppet-server-release.jar server.jar && ln -s /opt/puppetlabs/server/data/puppetserver/java.security.mldsa java.security.mldsa && test -f java.security.mldsa && javac StartupProbe.java
+RUN ln -s /opt/puppetlabs/server/apps/puppetserver/puppet-server-release.jar server.jar && ln -s /opt/puppetlabs/server/data/puppetserver/java.security.mldsa java.security.mldsa && test -f java.security.mldsa && javac StartupProbe.java
 # Configure fixtures at build time without changing package ownership.
 RUN <<'CONFIGURE'
 # systemd creates RuntimeDirectory on service startup; foreground containers need it too.

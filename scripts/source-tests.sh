@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
-bash scripts/build-jruby-openssl.sh "$root/sources/jruby-openssl" "$root/sources/jruby-openssl/jruby-openssl-source-tests.gem"
+[[ -f dist/jruby-openssl.gem && -f dist/openvoxserver-ca.gem ]] || { echo 'Run scripts/build-server.sh before source tests' >&2; exit 1; }
 export BUNDLE_PATH=${BUNDLE_PATH:-${RUNNER_TEMP:-/tmp}/openvox-packages-bundle}
 cd sources/openvox
 bundle install --jobs 4
@@ -18,7 +18,6 @@ javac -cp "$classpath" -d target/test-classes test/java/com/puppetlabs/ssl_utils
 java -ea -cp "$classpath" com.puppetlabs.ssl_utils.IssuerSigningTest
 lein install
 cd "$root/sources/openvoxserver-ca"
-gem build openvoxserver-ca.gemspec --output "$root/sources/openvoxserver-ca/openvoxserver-ca-source-tests.gem"
 BUNDLE_GEMFILE=$PWD/Gemfile bundle install
 BUNDLE_GEMFILE=$PWD/Gemfile bundle exec rake spec_random
 cd "$root/sources/openvox-server"
@@ -35,13 +34,13 @@ File.write('dev-resources/Gemfile', "source 'https://rubygems.org'\ngem 'openvox
 RUBY
 BUNDLE_GEMFILE=$PWD/Gemfile bundle install
 ./dev-setup
-lein gem install --local --ignore-dependencies --no-document "$root/sources/jruby-openssl/jruby-openssl-source-tests.gem"
+lein gem install --local --ignore-dependencies --no-document "$root/dist/jruby-openssl.gem"
 lein ruby "$root/tests/jruby-openssl.rb"
 lein gem install --no-document test-unit
 lein ruby "$root/sources/jruby-openssl/test/test_x509_mldsa.rb"
 JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djdk.tls.client.SignatureSchemes=mldsa44,mldsa65,mldsa87,rsa_pss_rsae_sha256,rsa_pkcs1_sha256 -Djdk.tls.server.SignatureSchemes=mldsa44,mldsa65,mldsa87,rsa_pss_rsae_sha256,rsa_pkcs1_sha256" lein ruby "$root/sources/jruby-openssl/integration/mldsa_http.rb"
 JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Djava.security.properties=$root/sources/openvox-server/resources/ext/java.security.mldsa -Djdk.tls.client.SignatureSchemes=mldsa44,rsa_pss_rsae_sha256,rsa_pkcs1_sha256 -Djdk.tls.server.SignatureSchemes=mldsa44,rsa_pss_rsae_sha256,rsa_pkcs1_sha256" lein ruby "$root/sources/vault/spec/unit/puppet_x/vault_secrets/jruby_context_check.rb"
-lein gem install --local --ignore-dependencies --no-document "$root/sources/openvoxserver-ca/openvoxserver-ca-source-tests.gem"
+lein gem install --local --ignore-dependencies --no-document "$root/dist/openvoxserver-ca.gem"
 lein test :singlethreaded
 lein test :multithreaded
 BUNDLE_GEMFILE=$PWD/Gemfile bundle exec ruby "$root/scripts/server-specs.rb"

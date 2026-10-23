@@ -12,20 +12,6 @@ if version
 end
 
 root = Pathname(root)
-gem_list = root / 'openvox-server/resources/ext/build-scripts/jruby-gem-list.txt'
-gem_list_text = gem_list.read
-abort 'Expected one public jruby-openssl dependency' unless gem_list_text.scan(/^jruby-openssl \S+$/).size == 1
-gem_list_text = gem_list_text.sub(/^jruby-openssl \S+\n/, '')
-installer = root / 'openvox-server/resources/ext/build-scripts/install-vendored-gems.sh'
-installer_text = installer.read
-install_after = 'install_gems "${DIR}/jruby-stdlib-gem-list.txt"'
-abort 'Expected one JRuby stdlib installation' unless installer_text.scan(install_after).size == 1
-installer_text = installer_text.sub(install_after, install_after + <<~'SH')
-
-  # The coordinated snapshot supplies the OpenSSL implementation for all JRuby users.
-  gem_install_jars=(ext/classpath-jars/{bcpkix,bcprov}-jdk18on-*.jar)
-  java -cp "$(IFS=:; echo "${gem_install_jars[*]}"):puppet-server-release.jar" clojure.main -m puppetlabs.puppetserver.cli.gem --config jruby.conf -- install --local --ignore-dependencies --no-document "${DIR}/jruby-openssl.gem"
-SH
 ssl = root / 'jvm-ssl-utils/project.clj'
 ssl_text = ssl.read
 ssl_project = /\(defproject org.openvoxproject\/ssl-utils "([^"]+)"/
@@ -56,5 +42,3 @@ end
 ssl.write(ssl_text.sub(ssl_project, "(defproject org.openvoxproject/ssl-utils \"#{local}\""))
 server.write(text)
 config.write(config_text) if version
-gem_list.write(gem_list_text)
-installer.write(installer_text)

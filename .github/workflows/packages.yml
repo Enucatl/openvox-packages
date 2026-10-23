@@ -29,9 +29,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: coordinated-inputs
-          path: |
-            dist/source-heads.tsv
-            dist/build-manifest.json
+          path: dist/build-manifest.json
           if-no-files-found: error
           retention-days: 14
   source:
@@ -229,9 +227,10 @@ jobs:
           persist-credentials: false
       - name: Restore candidate identity and tested Vault module
         run: |
-          curl -fsSLo /tmp/build-manifest.json "${CANDIDATE_URL}build-manifest.json"
+          mkdir -p dist
+          curl -fsSLo dist/build-manifest.json "${CANDIDATE_URL}build-manifest.json"
           ruby -rjson <<'RUBY_IDENTITY'
-          manifest = JSON.parse(File.read('/tmp/build-manifest.json'))
+          manifest = JSON.parse(File.read('dist/build-manifest.json'))
           target = manifest.fetch('targets').fetch(ENV.fetch('TARGET'))
           File.open(ENV.fetch('GITHUB_ENV'), 'a') do |file|
             file.puts "AGENT_VERSION=#{target.fetch('sources').fetch('openvox').fetch('package_version')}"
@@ -243,8 +242,6 @@ jobs:
             end
           end
           RUBY_IDENTITY
-          mkdir -p dist
-          jq -r '["vault", .sources.vault.sha] | @tsv' /tmp/build-manifest.json > dist/source-heads.tsv
           scripts/checkout-sources.sh vault
       - name: Anonymous APT and installed-package acceptance
         run: scripts/acceptance.sh "$CANDIDATE_URL" openvox-archive-keyring.asc "${PREVIOUS_AGENT:-}" "${PREVIOUS_SERVER:-}"

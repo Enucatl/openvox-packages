@@ -73,7 +73,6 @@ Dir.mktmpdir do |root|
   end
   run.call('prepare')
   manifest_path = "#{root}/dist/build-manifest.json"
-  heads_path = "#{root}/dist/source-heads.tsv"
   manifest = JSON.parse(File.read(manifest_path))
   raise 'Wrong coordinated build identity' unless manifest.values_at('build', 'run', 'attempt') == %w[42002 100 2]
   raise 'Source snapshot differs from committed pins' unless manifest.fetch('sources').transform_values { |source| source.fetch('sha') } == heads
@@ -100,22 +99,26 @@ Dir.mktmpdir do |root|
   run.call('prepare')
   run.call('checkout-sources', *repos)
   raise 'Rerun changed pinned sources' unless JSON.parse(File.read(manifest_path)) == manifest
-  raise 'Rerun appended duplicate source pins' unless File.readlines(heads_path).size == repos.size
-
-  saved_heads = File.read(heads_path)
-  File.write(heads_path, saved_heads.sub(heads.fetch('openvox'), 'not-a-commit'))
+  saved_manifest = File.read(manifest_path)
+  File.write(manifest_path, saved_manifest.sub(heads.fetch('openvox'), 'not-a-commit'))
   calls_before = File.read(env.fetch('GIT_CALL_LOG'))
   _, status = Open3.capture2e(env, 'bash', 'scripts/checkout-sources.sh', 'openvox', chdir: root)
   raise 'Checkout accepted an invalid SHA' if status.success?
   raise 'Checkout mutated Git state before validating SHA' unless File.read(env.fetch('GIT_CALL_LOG')) == calls_before
-  File.write(heads_path, saved_heads.sub(heads.fetch('openvox'), moved_heads.fetch('openvox')))
-  _, status = Open3.capture2e(env, 'bash', 'scripts/checkout-sources.sh', 'openvox', chdir: root)
-  raise 'Checkout accepted a manifest that disagrees with the committed pin' if status.success?
+  %w[openvox vault].each do |repo|
+    changed = JSON.parse(saved_manifest)
+    changed.fetch('sources').fetch(repo)['sha'] = moved_heads.fetch(repo)
+    File.write(manifest_path, JSON.generate(changed))
+    _, status = Open3.capture2e(env, 'bash', 'scripts/checkout-sources.sh', repo, chdir: root)
+    raise "Checkout accepted a manifest that disagrees with the committed pin: #{repo}" if status.success?
+  end
 
-  File.write(heads_path, saved_heads)
+  File.write(manifest_path, saved_manifest)
   git.call('-C', root, 'update-index', '--cacheinfo', "160000,#{moved_heads.fetch('openvox')},sources/openvox")
   _, status = Open3.capture2e(env, 'bash', 'scripts/checkout-sources.sh', 'openvox', chdir: root)
   raise 'Checkout accepted a staged pin that disagrees with HEAD' if status.success?
+  _, status = Open3.capture2e(env, 'bash', 'scripts/prepare.sh', chdir: root)
+  raise 'Preparation accepted a staged pin that disagrees with HEAD' if status.success?
   raise 'Checkout advanced to an uncommitted pin' unless git.call('-C', "#{root}/sources/openvox", 'rev-parse', 'HEAD') == heads.fetch('openvox')
   git.call('-C', root, 'commit', '-m', 'Advance OpenVox pin')
   run.call('prepare')
@@ -125,6 +128,5 @@ Dir.mktmpdir do |root|
   raise 'Preparation ignored the updated parent pin' unless updated.transform_values { |source| source.fetch('sha') } == expected_heads
   raise 'Version did not follow the updated pin' unless updated.fetch('openvox').fetch('commits_since_tag') == 2
   raise 'Initialized checkout did not advance to the new pin' unless git.call('-C', "#{root}/sources/openvox", 'rev-parse', 'HEAD') == moved_heads.fetch('openvox')
-  raise 'Pin update appended duplicate source pins' unless File.readlines(heads_path).size == repos.size
 end
 puts 'Committed source pins, recursive checkout, reruns, and manifest validation checks passed'

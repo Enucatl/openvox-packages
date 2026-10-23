@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p sources
 for repo in "$@"; do
-  sha=$(awk -v repo="$repo" '$1 == repo {print $2}' dist/source-heads.tsv)
+  sha=$(jq -er --arg repo "$repo" '.sources[$repo].sha' dist/build-manifest.json)
   [[ $sha =~ ^[0-9a-f]{40}$ ]]
   [[ $(git rev-parse "HEAD:sources/$repo") == "$sha" && $(git rev-parse ":sources/$repo") == "$sha" ]] || {
     echo "Source snapshot does not match the committed submodule: $repo" >&2
