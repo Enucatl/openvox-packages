@@ -24,9 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Resolve branches and prepare versions once
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Read pinned sources and prepare versions once
         run: scripts/prepare.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -241,9 +239,9 @@ jobs:
             end
           end
           RUBY_IDENTITY
-          sha=$(jq -r '.sources.vault.sha' /tmp/build-manifest.json)
-          git clone --no-checkout https://github.com/Enucatl/vault.git sources/vault
-          git -C sources/vault checkout --detach "$sha"
+          mkdir -p dist
+          jq -r '["vault", .sources.vault.sha] | @tsv' /tmp/build-manifest.json > dist/source-heads.tsv
+          scripts/checkout-sources.sh vault
       - name: Anonymous APT and installed-package acceptance
         run: scripts/acceptance.sh "$CANDIDATE_URL" openvox-archive-keyring.asc "${PREVIOUS_AGENT:-}" "${PREVIOUS_SERVER:-}"
       - name: Retain acceptance diagnostics

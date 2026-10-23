@@ -129,8 +129,10 @@ The repository exists; the APT URLs become usable only after a tested release.
 
 ## Source and build organization
 
-Keep source changes in the five existing forks. Follow `feature/mldsa44` in
-each; do not freeze deployment configuration at the first reviewed commits.
+Keep source changes in the five existing forks, checked out as pinned submodules
+under `sources/`. Adopt source changes by committing updated pointers in this
+repository. The `feature/mldsa44` branch hints are for deliberate updates; builds
+must use the commits recorded by the coordinator revision.
 
 | Fork | Distribution role |
 | --- | --- |
@@ -141,22 +143,21 @@ each; do not freeze deployment configuration at the first reviewed commits.
 | `Enucatl/vault` | Deploy the module through its Puppetfile branch; record the revision tested with the packages. |
 
 Use `openvox-packages` for build coordination, release assets, the public archive
-key and installation instructions. A push to `feature/mldsa44` in any of the five
-forks must dispatch a coordinated build through `packages.yml` in the distribution
-repository. Manual dispatch and coordinator main pushes can also rebuild.
+key and installation instructions. Coordinator main pushes and manual dispatch
+run `packages.yml` using the committed source pins. Source pushes alone do not
+change the coordinated inputs. Preserve upstream workflows in the source forks;
+fork-specific dispatch workflows are removed.
 Tests, candidate publication, anonymous APT acceptance and promotion to latest
 are automatic; no per-release approval is required.
 
-Each fork stores `PACKAGES_DISPATCH_TOKEN`, a fine-grained PAT restricted to the
-distribution repository with Actions: write. Its own `GITHUB_TOKEN` cannot
-dispatch workflows across repositories. The distribution repository uses its
-own `GITHUB_TOKEN` with contents: write for publication; it alone holds the
-archive signing secrets. No signing material goes into source forks.
+The distribution repository uses its own `GITHUB_TOKEN` with contents: write for
+publication; it alone holds the archive signing secrets. Source forks need no
+dispatch token or signing material.
 
-At the start of each build, resolve all five branch heads once and use those
-checkouts throughout the job. Record their SHAs, runtime versions, test results
-and artifact checksums in a build manifest. These identify what was built;
-they do not prevent the next build from consuming newer branch heads.
+At the start of each build, read all five gitlinks from the coordinator commit
+and use those submodule checkouts throughout the jobs. Record their SHAs, runtime
+versions, test results and artifact checksums in a build manifest. A rerun of the
+same coordinator revision uses the same source commits even if fork branches move.
 
 Build dependencies and packages in this order:
 
@@ -213,7 +214,7 @@ rebases can reduce it and dependency-only rebuilds do not change it.
 The implementation uses `GITHUB_RUN_NUMBER * 1000 + GITHUB_RUN_ATTEMPT`, requiring
 attempt < 1000. Preserve the workflow's counter history; a rerun older than the
 current promoted version must fail the ordering check. GitHub may coalesce
-pending runs; each run resolves the current coordinated branch heads.
+pending runs; each run uses the source pins in its coordinator revision.
 
 APT compares version fields, not release dates or commit ancestry. At equal
 repository priority, the intended ordering is:

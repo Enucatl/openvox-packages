@@ -7,17 +7,13 @@ mkdir -p sources dist
 (( GITHUB_RUN_ATTEMPT < 1000 ))
 BUILD_NUMBER=$((GITHUB_RUN_NUMBER * 1000 + GITHUB_RUN_ATTEMPT))
 export BUILD_NUMBER
+: > dist/source-heads.tsv
 for repo in openvox jvm-ssl-utils openvox-server openvoxserver-ca vault; do
-  sha=$(gh api "repos/Enucatl/$repo/commits/feature%2Fmldsa44" --jq .sha)
-  [[ $sha =~ ^[0-9a-f]{40}$ ]]
+  read -r mode type sha _ < <(git ls-tree HEAD "sources/$repo")
+  [[ $mode == 160000 && $type == commit && $sha =~ ^[0-9a-f]{40}$ ]]
   printf '%s\t%s\n' "$repo" "$sha" >> dist/source-heads.tsv
 done
-# Version discovery needs commit history and tags, not source blobs or submodules.
-for repo in openvox openvox-server; do
-  git clone --bare --filter=blob:none "https://github.com/Enucatl/$repo.git" "sources/$repo"
-  git -C "sources/$repo" update-ref --no-deref HEAD "$(awk -v repo="$repo" '$1 == repo {print $2}' dist/source-heads.tsv)"
-  git -C "sources/$repo" fetch --filter=blob:none "https://github.com/OpenVoxProject/$repo.git" '+refs/tags/*:refs/tags/*'
-done
+scripts/checkout-sources.sh openvox openvox-server
 ruby <<'RUBY'
 require 'json'
 require 'open3'

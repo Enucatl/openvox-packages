@@ -106,6 +106,10 @@ checksum, and missing runtime evidence still fails clearly.
 
 ## 7. Simplify the fork dispatch workflows
 
+Historical task, superseded by pinned source submodules. Coordinated builds now
+run from this repository's committed source pointers; the fork dispatch workflows
+are removed. See the source workflow in `README.md`.
+
 - [x] Remove server-only token-prefix and whitespace checks from
       `openvox-server/.github/workflows/rebuild-packages.yml`.
 - [x] Keep the five dispatch workflows consistent: the existing owner guard,

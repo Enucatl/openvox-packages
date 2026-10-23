@@ -1,5 +1,23 @@
 # ML-DSA OpenVox packages
 
+This repository owns coordinated source selection, testing, signed APT publication
+and the OpenVox server image. The source forks are pinned Git submodules:
+
+| Source | Role |
+| --- | --- |
+| [`sources/openvox`](sources/openvox) | Agent source and native package recipe. |
+| [`sources/jvm-ssl-utils`](sources/jvm-ssl-utils) | SSL library included in the server. |
+| [`sources/openvox-server`](sources/openvox-server) | Server source and native package recipe. |
+| [`sources/openvoxserver-ca`](sources/openvoxserver-ca) | CA gem included in the server. |
+| [`sources/vault`](sources/vault) | Puppet module used in compatibility tests; deployed separately. |
+
+`packages.yml` builds and accepts the agent/server APT packages, then calls
+`server-image.yml` to build and publish the server image from those exact packages.
+`docker/server` is the published image recipe. `docker/curl` and
+`docker/freeipa-client` are package build environments that export `.deb` files.
+Deployment configuration remains in `puppet-control-repo`, which consumes accepted
+packages and image digests.
+
 Native FreeIPA client ML-DSA compatibility packages for Ubuntu 26.04 and Debian 13
 are built and published separately; see [native client prerequisites](docs/native-client.md).
 
@@ -31,18 +49,57 @@ in [run 39154755798](https://github.com/Enucatl/openvox-packages/actions/runs/39
 Its [image manifest](https://github.com/Enucatl/openvox-packages/releases/download/resolute-18001/server-image.json)
 records digest `sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
 
-A push to `feature/mldsa44` in Enucatl/openvox, Enucatl/jvm-ssl-utils,
-Enucatl/openvox-server, Enucatl/openvoxserver-ca or Enucatl/vault dispatches
-`packages.yml` here. Coordinator main pushes and manual dispatch also rebuild.
-Each run resolves the five heads once. Shared source suites and server compilation
-run once, alongside three parallel native-agent builds. The server's compressed
+Coordinator main pushes and manual dispatch run `packages.yml` here. Each run
+reads the five source commits pinned by its coordinator revision; pushing a
+source fork alone does not advance the release inputs. Shared source suites and
+server compilation run once, alongside three parallel native-agent builds. The server's compressed
 payload is reused byte-for-byte; only package versions and exact agent dependencies
 change for each OS. The publisher signs one flat APT archive and publishes a
 candidate without changing latest. Anonymous APT and installed-package lifecycle
 acceptance run in parallel on all three OSes; promotion requires every target to
 pass. Newer runs cancel superseded builds. Package/source failures prevent APT
 promotion; image aliases move after image tests. GitHub can coalesce pending
-runs, so rapid pushes rebuild the current coordinated heads.
+runs, so rapid coordinator pushes may skip intermediate source combinations.
+
+## Working with the sources
+
+Clone the coordinator and its source repositories together:
+
+```sh
+git clone --recurse-submodules git@github.com:Enucatl/openvox-packages.git
+cd openvox-packages
+```
+
+For an existing checkout, run `git submodule update --init --recursive` after
+pulling coordinator changes. Each submodule is a normal Git repository. Public
+HTTPS clone URLs are recorded in `.gitmodules`; configure SSH pushes and an
+upstream remote locally when needed, for example:
+
+```sh
+git -C sources/openvox remote set-url --push origin git@github.com:Enucatl/openvox.git
+git -C sources/openvox remote add upstream https://github.com/OpenVoxProject/openvox.git
+```
+
+Submodule checkout normally leaves a detached HEAD. Switch to a branch before
+editing, commit and push the source changes, then record the new commit here:
+
+```sh
+git -C sources/openvox switch -c fix/example
+# Edit and commit the source changes in sources/openvox.
+git -C sources/openvox push -u origin fix/example
+git add sources/openvox
+git commit -m "Update OpenVox source"
+git push --recurse-submodules=check
+```
+
+Several source pointers can advance in one coordinator commit. To adopt an
+existing fork commit, fetch it in the submodule, check out that commit and update
+the coordinator pointer in the same way. The `feature/mldsa44` branch hints in
+`.gitmodules` support deliberate `git submodule update --remote` updates; release
+builds always use committed pointers. Commit pointer changes before running
+`scripts/prepare.sh`, which rejects a staged pointer that differs from HEAD.
+Source repositories retain upstream workflows; coordinated tests and publication
+run here without fork-specific dispatch workflows or dispatch credentials.
 
 ## Credentials
 
@@ -52,10 +109,10 @@ runs, so rapid pushes rebuild the current coordinated heads.
   subkey and its passphrase. No primary private key in Actions.
 - `APT_PRIMARY_FINGERPRINT` variable:
   `775661C709ACE6F7C1CF0FF6C4B7528F03E0BB94`.
-- Each source fork needs `PACKAGES_DISPATCH_TOKEN`: a fine-grained PAT restricted
-  to **this repository**, with **Actions: write**. It cannot sign or publish
-  packages. Set it using `gh secret set PACKAGES_DISPATCH_TOKEN --repo Enucatl/REPO`
-  and enter the token at the hidden prompt. Never paste it into an issue or chat.
+
+The source forks do not need publishing or dispatch credentials. Any existing
+`PACKAGES_DISPATCH_TOKEN` secrets can be removed after their dispatch workflows
+have been deleted on the remote forks.
 
 The generating machine holds a private primary-key/revocation backup outside
 this repository. Moving that backup to offline storage is an operator task;
@@ -260,8 +317,8 @@ continue through the existing client writer. The writer calls the bundled
 encoding and encryption with policy scoped to that child. No global OpenSSL
 configuration is required. Keys and passwords travel through private pipes.
 The CLI rejects passwords over 1,023 bytes or containing NUL, CR or LF before
-writing. The coordinated build resolves the corrected `feature/mldsa44`
-fork commit through the existing source snapshot input. The
+writing. The coordinated build pins the corrected fork commit through the
+`sources/openvox` submodule. The
 [squashed client change](https://github.com/Enucatl/openvox/commit/0abc7dda4c29d598f8ef4bbd551ca2ef98df1b26)
 rebases the four fork commits over twelve upstream commits through `c77530a905`,
 including the `2026.10.22.1` runtime build input.
@@ -282,7 +339,8 @@ the original MRI Bundler environment leak into Rake's child processes.
 `tests/build-manifest.rb` runs the workflow's recording step against fixtures to
 verify identity, check records, runtime inputs, checksums and missing evidence.
 `tests/targets.sh` checks target selection and agent-build inputs;
-`tests/source-snapshot.rb` verifies that every job uses the same resolved commits.
+`tests/source-snapshot.rb` verifies committed source pins, recursive checkout,
+repeatable preparation and rejection of mismatched source snapshots.
 `tests/repackage-server.rb` verifies unchanged compressed payload/ownership and
 matching package metadata. `tests/release-manifest.rb` checks target provenance
 and checksums, and `tests/publication.rb` checks previous-pair retention and
