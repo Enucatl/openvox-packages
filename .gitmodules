@@ -1,23 +1,23 @@
 [submodule "sources/openvox"]
 	path = sources/openvox
 	url = https://github.com/Enucatl/openvox.git
-	branch = feature/mldsa44
+	branch = feature/ml-dsa
 [submodule "sources/jvm-ssl-utils"]
 	path = sources/jvm-ssl-utils
 	url = https://github.com/Enucatl/jvm-ssl-utils.git
-	branch = feature/mldsa44
+	branch = feature/ml-dsa
 [submodule "sources/openvox-server"]
 	path = sources/openvox-server
 	url = https://github.com/Enucatl/openvox-server.git
-	branch = feature/mldsa44
+	branch = feature/ml-dsa
 [submodule "sources/openvoxserver-ca"]
 	path = sources/openvoxserver-ca
 	url = https://github.com/Enucatl/openvoxserver-ca.git
-	branch = feature/mldsa44
+	branch = feature/ml-dsa
 [submodule "sources/vault"]
 	path = sources/vault
 	url = https://github.com/Enucatl/vault.git
-	branch = feature/mldsa44
+	branch = feature/ml-dsa
 [submodule "sources/jruby-openssl"]
 	path = sources/jruby-openssl
 	url = https://github.com/Enucatl/jruby-openssl.git

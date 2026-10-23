@@ -23,7 +23,7 @@ Dir.mktmpdir do |root|
     git.call('config', '--file', config, '--add', "url.file://#{root}/upstream/.insteadOf", "https://github.com/#{owner}/")
   end
   init = lambda do |path|
-    git.call('init', '--initial-branch=feature/mldsa44', path)
+    git.call('init', '--initial-branch=feature/ml-dsa', path)
     git.call('-C', path, 'config', 'user.name', 'Snapshot selfcheck')
     git.call('-C', path, 'config', 'user.email', 'selfcheck@example.invalid')
   end

@@ -95,8 +95,7 @@ git push --recurse-submodules=check
 
 Several source pointers can advance in one coordinator commit. To adopt an
 existing fork commit, fetch it in the submodule, check out that commit and update
-the coordinator pointer in the same way. The `feature/mldsa44` branch hints (and
-`feature/ml-dsa` for JRuby OpenSSL) in
+the coordinator pointer in the same way. The `feature/ml-dsa` branch hints in
 `.gitmodules` support deliberate `git submodule update --remote` updates; release
 builds always use committed pointers. Commit pointer changes before running
 `scripts/prepare.sh`, which rejects a staged pointer that differs from HEAD.

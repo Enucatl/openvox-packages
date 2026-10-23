@@ -131,7 +131,7 @@ The repository exists; the APT URLs become usable only after a tested release.
 
 Keep source changes in the five existing forks, checked out as pinned submodules
 under `sources/`. Adopt source changes by committing updated pointers in this
-repository. The `feature/mldsa44` branch hints are for deliberate updates; builds
+repository. The `feature/ml-dsa` branch hints are for deliberate updates; builds
 must use the commits recorded by the coordinator revision.
 
 | Fork | Distribution role |
