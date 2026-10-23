@@ -11,7 +11,7 @@ server_version = '9.1.1+homelab.42-1+ubuntu26.04'
 agent_version = '9.1.0+homelab.42-1+ubuntu26.04'
 
 Dir.mktmpdir do |root|
-  paths = %w[jvm-ssl-utils/project.clj openvox-server/project.clj openvox-server/resources/ext/ezbake.conf]
+  paths = %w[jvm-ssl-utils/project.clj openvox-server/project.clj openvox-server/resources/ext/ezbake.conf openvox-server/resources/ext/build-scripts/jruby-gem-list.txt openvox-server/resources/ext/build-scripts/install-vendored-gems.sh]
   reset = lambda do
     paths.each do |path|
       FileUtils.mkdir_p(File.dirname("#{root}/#{path}"))
@@ -29,6 +29,7 @@ Dir.mktmpdir do |root|
     project = File.read("#{root}/openvox-server/project.clj")
     raise 'Wrong SSL artifact' unless File.read("#{root}/jvm-ssl-utils/project.clj").include?("(defproject org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.#{suffix}\"")
     raise 'Wrong SSL dependency' unless project.include?("[org.openvoxproject/ssl-utils \"#{ssl_version}-homelab.#{suffix}\"]")
+    raise 'Public OpenSSL dependency retained' if File.read("#{root}/openvox-server/resources/ext/build-scripts/jruby-gem-list.txt").include?('jruby-openssl')
     unless versions.empty?
       raise 'Wrong server Maven version' unless project.include?("(defproject org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"")
       raise 'Wrong EZbake self dependency' unless project.scan("[org.openvoxproject/puppetserver \"#{server_base}-homelab.42\"]").size == 2
@@ -36,7 +37,7 @@ Dir.mktmpdir do |root|
     end
     _, error, status = Open3.capture3(RbConfig.ruby, configure, root, *versions)
     raise 'Accepted an already modified project' if status.success?
-    raise error unless error.include?('Expected uncoordinated SSL project version')
+    raise error unless error.include?('Expected one public jruby-openssl dependency')
   end
 
   reset.call
@@ -65,12 +66,19 @@ Dir.mktmpdir do |root|
     raise 'Partially changed an invalid recipe' unless paths.map { |file| File.read("#{root}/#{file}") } == before
   end
 
+  reset.call
+  _, error, status = Open3.capture3(RbConfig.ruby, configure, root)
+  raise error unless status.success?
   FileUtils.cp_r("#{sources}/openvox-server/resources/ext/build-scripts", root)
+  FileUtils.cp("#{root}/openvox-server/resources/ext/build-scripts/install-vendored-gems.sh", "#{root}/build-scripts/")
+  FileUtils.cp("#{root}/openvox-server/resources/ext/build-scripts/jruby-gem-list.txt", "#{root}/build-scripts/")
   FileUtils.mkdir_p("#{root}/bin")
   File.write("#{root}/bin/java", <<~'SH')
     #!/bin/bash
     printf '%s\n' "$*" >> "$JAVA_LOG"
-    if [[ $* == *openvoxserver-ca* ]]; then
+    if [[ $* == *jruby-openssl* ]]; then
+      exit "${JAVA_OPENSSL_STATUS:-0}"
+    elif [[ $* == *openvoxserver-ca* ]]; then
       exit "${JAVA_STATUS:-0}"
     fi
   SH
@@ -82,6 +90,8 @@ Dir.mktmpdir do |root|
     FileUtils.rm_f(env['JAVA_LOG'])
     _, error, status = Open3.capture3(env, 'bash', installer, chdir: root)
     raise error unless status.success?
+    openssl_commands = File.readlines(env['JAVA_LOG']).grep(/jruby-openssl/)
+    raise 'Expected only the local OpenSSL installation' unless openssl_commands.size == 1 && openssl_commands.first.include?("install --local --ignore-dependencies --no-document #{root}/build-scripts/jruby-openssl.gem")
     commands = File.readlines(env['JAVA_LOG']).grep(/openvoxserver-ca/)
     raise 'Expected one CA installation' unless commands.size == 1
     if local
@@ -92,5 +102,7 @@ Dir.mktmpdir do |root|
   end
   _, _, status = Open3.capture3(env.merge('JAVA_STATUS' => '23'), 'bash', installer, chdir: root)
   raise 'Ignored gem installer failure' unless status.exitstatus == 23
+  _, _, status = Open3.capture3(env.merge('JAVA_OPENSSL_STATUS' => '24'), 'bash', installer, chdir: root)
+  raise 'Ignored OpenSSL installer failure' unless status.exitstatus == 24
 end
 puts 'Coordinated recipe and local CA installation checks passed'

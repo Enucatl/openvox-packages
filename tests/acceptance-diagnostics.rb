@@ -14,6 +14,7 @@ Dir.mktmpdir do |dir|
   FileUtils.mkdir_p(["#{dir}/bin", "#{dir}/scripts", "#{dir}/tests/acceptance", "#{dir}/sources/vault/lib", "#{dir}/container/test"])
   FileUtils.cp(Dir["#{root}/scripts/acceptance*.sh"] + ["#{root}/scripts/target.sh"], "#{dir}/scripts")
   FileUtils.cp_r("#{root}/apt", dir)
+  FileUtils.cp("#{root}/tests/jruby-openssl.rb", "#{dir}/tests")
   File.write("#{dir}/key.asc", 'PUBLIC KEY')
   File.write("#{dir}/bin/docker", <<~'RUBY')
     #!/usr/bin/env ruby

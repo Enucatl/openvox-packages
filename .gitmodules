@@ -18,3 +18,7 @@
 	path = sources/vault
 	url = https://github.com/Enucatl/vault.git
 	branch = feature/mldsa44
+[submodule "sources/jruby-openssl"]
+	path = sources/jruby-openssl
+	url = https://github.com/Enucatl/jruby-openssl.git
+	branch = feature/ml-dsa

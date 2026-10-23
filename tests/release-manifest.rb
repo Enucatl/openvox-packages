@@ -15,7 +15,7 @@ Dir.mktmpdir do |root|
   run = ->(script, env = {}) { Open3.capture3(env, RbConfig.ruby, "scripts/#{script}.rb", chdir: root) }
   source = {
     'build' => '42001', 'run' => '42', 'attempt' => '1',
-    'sources' => %w[openvox openvox-server jvm-ssl-utils openvoxserver-ca vault].to_h { |repo| [repo, { 'sha' => 'a' * 40 }] }
+    'sources' => %w[openvox openvox-server jvm-ssl-utils openvoxserver-ca jruby-openssl vault].to_h { |repo| [repo, { 'sha' => 'a' * 40 }] }
   }
   source['sources']['openvox']['package_version'] = '9.1.0+homelab.42001-1+ubuntu26.04'
   source['sources']['openvox-server']['package_version'] = '9.1.1+homelab.42001-1+ubuntu26.04'

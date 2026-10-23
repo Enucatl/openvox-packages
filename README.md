@@ -9,6 +9,7 @@ and the OpenVox server image. The source forks are pinned Git submodules:
 | [`sources/jvm-ssl-utils`](sources/jvm-ssl-utils) | SSL library included in the server. |
 | [`sources/openvox-server`](sources/openvox-server) | Server source and native package recipe. |
 | [`sources/openvoxserver-ca`](sources/openvoxserver-ca) | CA gem included in the server. |
+| [`sources/jruby-openssl`](sources/jruby-openssl) | JRuby OpenSSL gem with ML-DSA support, included in the server. |
 | [`sources/vault`](sources/vault) | Puppet module used in compatibility tests; deployed separately. |
 
 `packages.yml` builds and accepts the agent/server APT packages, then calls
@@ -50,7 +51,7 @@ Its [image manifest](https://github.com/Enucatl/openvox-packages/releases/downlo
 records digest `sha256:cbba872ef4b71865a8f7aacf395e4ff4ec28865995c5a9cec8023afe9d15b185`.
 
 Coordinator main pushes and manual dispatch run `packages.yml` here. Each run
-reads the five source commits pinned by its coordinator revision; pushing a
+reads the six source commits pinned by its coordinator revision; pushing a
 source fork alone does not advance the release inputs. Shared source suites and
 server compilation run once, alongside three parallel native-agent builds. The server's compressed
 payload is reused byte-for-byte; only package versions and exact agent dependencies
@@ -94,12 +95,70 @@ git push --recurse-submodules=check
 
 Several source pointers can advance in one coordinator commit. To adopt an
 existing fork commit, fetch it in the submodule, check out that commit and update
-the coordinator pointer in the same way. The `feature/mldsa44` branch hints in
+the coordinator pointer in the same way. The `feature/mldsa44` branch hints (and
+`feature/ml-dsa` for JRuby OpenSSL) in
 `.gitmodules` support deliberate `git submodule update --remote` updates; release
 builds always use committed pointers. Commit pointer changes before running
 `scripts/prepare.sh`, which rejects a staged pointer that differs from HEAD.
 Source repositories retain upstream workflows; coordinated tests and publication
 run here without fork-specific dispatch workflows or dispatch credentials.
+
+### JRuby OpenSSL and the Vault module
+
+The JRuby OpenSSL source is pinned to the `Enucatl/jruby-openssl`
+`feature/ml-dsa` branch implementing [upstream PR #389](https://github.com/jruby/jruby-openssl/pull/389).
+Its upstream is `https://github.com/jruby/jruby-openssl.git` (`master`). As with
+the other sources, configure developer remotes in each new checkout:
+
+```sh
+git -C sources/jruby-openssl remote set-url --push origin git@github.com:Enucatl/jruby-openssl.git
+git -C sources/jruby-openssl remote add upstream https://github.com/jruby/jruby-openssl.git
+```
+
+The coordinated server build compiles the Java extension and installs the local
+`jruby-openssl` gem in the server's vendored JRuby gems. Its source SHA is recorded
+in the package manifest, and the server image inherits it from the accepted
+package. This does not require publishing a replacement gem to RubyGems.
+
+The Vault Puppet module consumes it through `require 'openssl'` in
+Puppet Server's JRuby process. It does not import a Git branch or load Java classes
+itself. With the custom runtime installed, the Vault fork uses the ordinary
+Ruby APIs for ML-DSA keys and HTTPS client authentication:
+
+```ruby
+require 'openssl'
+require 'net/http'
+
+http = Net::HTTP.new('vault.example', 443)
+http.use_ssl = true
+http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+http.verify_hostname = true
+http.ca_file = 'ca.pem'
+http.cert = OpenSSL::X509::Certificate.new(File.read('client.pem'))
+http.key = OpenSSL::PKey.read(File.read('client-key.pem'))
+response = http.get('/v1/example')
+```
+
+The fork requires BC 1.80+ for ML-DSA keys and BCJSSE 1.82+ for mutual TLS,
+with ML-DSA signature schemes enabled before provider initialization. The server
+already supplies these providers and JVM settings. Restart the server when
+upgrading; an already loaded OpenSSL implementation cannot be swapped by requiring
+the gem again. Native agent-side Ruby continues to use its native OpenSSL library.
+
+For development outside the packaged server, build the extension first using
+`./mvnw package -Dmaven.test.skip=true` with JDK 21 in `sources/jruby-openssl`.
+The fork targets Java 8 bytecode, which JDK 25 can run but no longer compile;
+coordinated builds also use JDK 21 for this extension and JDK 25 for the server.
+A JRuby Bundler
+application can then select that checkout with
+`gem 'jruby-openssl', path: '/absolute/path/to/sources/jruby-openssl'` in its Gemfile,
+and run through `bundle exec`. A Git dependency alone is insufficient when the
+checkout has no compiled `lib/jopenssl.jar`. Puppet module `metadata.json`
+dependencies do not install Ruby gems into Puppet Server.
+
+The coordinated Vault fork uses this same Net::HTTP path on JRuby and native Ruby.
+Deploy its source pin together with the matching server package/image so JRuby
+has the required ML-DSA implementation.
 
 ## Credentials
 
@@ -332,7 +391,10 @@ override or `openvox-child-policy.rb` helper; deployment changes remain separate
 
 `tests/archive.sh` exercises archive integrity. `tests/server-recipe.rb` invokes
 `scripts/configure-build.rb` to check coordinated versions, local SSL coordinates
-and invalid inputs, and tests the local CA gem installer. `tests/source-recipe.rb`
+and invalid inputs, and tests the local CA and JRuby OpenSSL gem installers.
+`tests/jruby-openssl.rb` checks all three ML-DSA parameter sets through the installed
+gem in source tests and package acceptance. Source tests also run the fork's
+X.509 and Net::HTTP mutual TLS suites in the server's JRuby runtime. `tests/source-recipe.rb`
 checks that the Vault bundle resolves the local OpenVox fork. `tests/bundler-env.rb`
 runs the same `scripts/server-specs.rb` entry point as the source tests and rejects
 the original MRI Bundler environment leak into Rake's child processes.

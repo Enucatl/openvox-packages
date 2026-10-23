@@ -8,11 +8,13 @@ source scripts/target.sh
 root=$PWD
 build=$(mktemp -d "$root/.server-build.XXXXXX")
 trap 'sudo rm -rf "$build"' EXIT
-for repo in openvox-server jvm-ssl-utils openvoxserver-ca; do
+for repo in openvox-server jvm-ssl-utils openvoxserver-ca jruby-openssl; do
   git clone --no-hardlinks "$root/sources/$repo" "$build/$repo"
 done
 # EZbake requires a clean Git tree; all recipe changes stay in disposable clones.
 ruby scripts/configure-build.rb "$build" "$SERVER_VERSION" "$AGENT_VERSION"
+cp scripts/build-jruby-openssl.sh "$build/"
+printf '\nRUN dnf install -y java-21-openjdk-devel\n' >> "$build/openvox-server/Dockerfile"
 
 docker build -t openvox-packages-server-builder "$build/openvox-server"
 docker run --rm -i -v "$build:/build" openvox-packages-server-builder bash -euo pipefail <<'BUILD'
@@ -22,12 +24,13 @@ docker run --rm -i -v "$build:/build" openvox-packages-server-builder bash -euo 
 CLOJURE
   git config --global --add safe.directory "*"
   gem install bundler --no-document
+  JAVA_HOME_21_X64=/usr/lib/jvm/java-21-openjdk bash /build/build-jruby-openssl.sh /build/jruby-openssl /build/openvox-server/resources/ext/build-scripts/jruby-openssl.gem
   cd /build/openvoxserver-ca
   gem build openvoxserver-ca.gemspec --output /build/openvox-server/resources/ext/build-scripts/openvoxserver-ca.gem
   cd /build/jvm-ssl-utils
   lein install
   cd /build/openvox-server
-  git add project.clj resources/ext
+  git add Dockerfile project.clj resources/ext
   git -c user.name="OpenVox Packages" -c user.email="packages@localhost" commit -m "Apply coordinated package recipe"
   bundle config set without test
   bundle install
@@ -51,6 +54,7 @@ sudo dpkg-deb --build "$build/package" "$package"
 dpkg-deb -f "$package" Depends | grep -F "openvox-agent (= $AGENT_VERSION)"
 [[ -f "$build/package/opt/puppetlabs/server/data/puppetserver/java.security.mldsa" ]]
 sudo find "$build/package" -path '*/gems/openvoxserver-ca-*' -type d | grep .
+sudo find "$build/package" -path '*/gems/jruby-openssl-*/lib/jopenssl.jar' -type f | grep .
 mapfile -t jars < <(sudo find "$build/package" -name puppet-server-release.jar -type f)
 [[ ${#jars[@]} == 1 ]]
 jar tf "${jars[0]}" > "$build/jar-entries.txt"

@@ -5,7 +5,7 @@ require 'open3'
 require 'rbconfig'
 
 scripts = File.expand_path('../scripts', __dir__)
-repos = %w[openvox jvm-ssl-utils openvox-server openvoxserver-ca vault]
+repos = %w[openvox jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl vault]
 real_git, status = Open3.capture2('sh', '-c', 'command -v git')
 raise 'Git is required' unless status.success?
 real_git = real_git.strip

@@ -8,7 +8,7 @@ mkdir -p sources dist
 BUILD_NUMBER=$((GITHUB_RUN_NUMBER * 1000 + GITHUB_RUN_ATTEMPT))
 export BUILD_NUMBER
 : > dist/source-heads.tsv
-for repo in openvox jvm-ssl-utils openvox-server openvoxserver-ca vault; do
+for repo in openvox jvm-ssl-utils openvox-server openvoxserver-ca jruby-openssl vault; do
   read -r mode type sha _ < <(git ls-tree HEAD "sources/$repo")
   [[ $mode == 160000 && $type == commit && $sha =~ ^[0-9a-f]{40}$ ]]
   printf '%s\t%s\n' "$repo" "$sha" >> dist/source-heads.tsv

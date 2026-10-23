@@ -4,7 +4,7 @@ container=${1:?Container required}
 destination=${2:?Diagnostics destination required}
 mkdir -p "$destination"
 # Only named diagnostic files may leave the container; state and Vault responses contain credentials.
-for path in status.txt scope.txt versions.txt generate.log crls.log vault-setup.log lifecycle.log results.txt; do
+for path in status.txt scope.txt versions.txt jruby-openssl.log generate.log crls.log vault-setup.log lifecycle.log results.txt; do
   docker cp "$container:/test/$path" "$destination/$path" 2>/dev/null || true
 done
 for variant in RSA ML-DSA-44; do

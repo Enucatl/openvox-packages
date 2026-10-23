@@ -29,6 +29,7 @@ cleanup() {
 }
 trap cleanup EXIT
 cp -R "$root/tests/acceptance/." "$context/"
+cp "$root/tests/jruby-openssl.rb" "$context/"
 cp "$key" "$context/archive-key.asc"
 cp "$root/apt/$TARGET.pref" "$context/openvox.pref"
 cp -R "$root/sources/vault/lib" "$context/vault-module"
